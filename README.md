@@ -13,6 +13,18 @@ The server provides:
 
 The `/workspace` frontend route and Socket.IO connections require a valid session. User records contain a bcrypt password hash; API responses include only the user's ID, username, and email.
 
+## Dashboard and rooms
+
+The authenticated dashboard at `/workspace` shows rooms you own or have joined, lets you search public rooms, and supports creating public or private rooms. Public rooms can be joined by signed-in users. Private rooms are visible only to their owner and members; private-room invitations and access requests are not part of this phase. Room pages are available at `/rooms/:roomId`; the collaborative editor is a later phase.
+
+Room API endpoints require the authentication cookie:
+
+- `POST /api/rooms` — create a room.
+- `GET /api/rooms/mine` — list rooms you own or have joined.
+- `GET /api/rooms?search=...` — search public rooms you have not joined.
+- `POST /api/rooms/:roomId/join` — join a public room.
+- `GET /api/rooms/:roomId` — retrieve an accessible room.
+
 ## Local setup
 
 1. Create a root `.env` file using `.env.example` as a template.

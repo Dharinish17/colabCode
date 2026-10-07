@@ -7,6 +7,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 const authRoutes = require('./routes/auth');
+const roomRoutes = require('./routes/rooms');
 const User = require('./models/User');
 const { verifyToken } = require('./middleware/auth');
 
@@ -57,6 +58,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/rooms', roomRoutes);
 
 app.get('/', (req, res) => {
   res.json({
