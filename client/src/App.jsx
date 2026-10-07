@@ -48,7 +48,7 @@ async function requestRooms(endpoint, { method = 'GET', body, signal } = {}) {
 function Brand({ light = false }) {
   return (
     <Link className={`inline-flex items-center gap-3 font-semibold tracking-tight ${light ? 'text-white' : 'text-slate-100'}`} to="/">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-cyan-400 font-mono text-lg text-slate-950">
+      <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-400 font-mono text-lg text-slate-950">
         {'</>'}
       </span>
       CodeRoom
@@ -64,13 +64,13 @@ function HomePage({ currentUser, authLoadError }) {
           <Brand />
           <nav className="flex items-center gap-3 text-sm">
             {currentUser ? (
-              <Link className="rounded-lg bg-cyan-400 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300" to="/workspace">
+              <Link className="rounded-lg bg-brand-400 px-4 py-2 font-semibold text-slate-950 hover:bg-brand-300" to="/workspace">
                 Open workspace
               </Link>
             ) : (
               <>
                 <Link className="px-3 py-2 text-slate-300 hover:text-white" to="/login">Log in</Link>
-                <Link className="rounded-lg bg-cyan-400 px-4 py-2 font-semibold text-slate-950 hover:bg-cyan-300" to="/register">
+                <Link className="rounded-lg bg-brand-400 px-4 py-2 font-semibold text-slate-950 hover:bg-brand-300" to="/register">
                   Create account
                 </Link>
               </>
@@ -85,7 +85,7 @@ function HomePage({ currentUser, authLoadError }) {
                 Could not check your sign-in status: {authLoadError}
               </p>
             )}
-            <p className="mb-5 inline-flex rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-cyan-300">
+            <p className="mb-5 inline-flex rounded-full border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-brand-300">
               Build together, in real time
             </p>
             <h1 className="max-w-2xl text-5xl font-bold leading-tight tracking-tight text-white md:text-6xl">
@@ -96,12 +96,12 @@ function HomePage({ currentUser, authLoadError }) {
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
               {currentUser ? (
-                <Link className="rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-300" to="/workspace">
+                <Link className="rounded-xl bg-brand-400 px-5 py-3 font-semibold text-slate-950 hover:bg-brand-300" to="/workspace">
                   Continue as {currentUser.username}
                 </Link>
               ) : (
                 <>
-                  <Link className="rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-300" to="/register">
+                  <Link className="rounded-xl bg-brand-400 px-5 py-3 font-semibold text-slate-950 hover:bg-brand-300" to="/register">
                     Get started
                   </Link>
                   <Link className="rounded-xl border border-slate-700 px-5 py-3 font-semibold text-white hover:border-slate-500" to="/login">
@@ -112,8 +112,8 @@ function HomePage({ currentUser, authLoadError }) {
             </div>
           </div>
 
-          <div className="relative rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-cyan-950/30">
-            <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-cyan-500/10 blur-3xl" />
+          <div className="relative rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-brand-950/30">
+            <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-brand-500/10 blur-3xl" />
             <div className="relative flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Shared workspace</p>
@@ -124,13 +124,13 @@ function HomePage({ currentUser, authLoadError }) {
               </span>
             </div>
             <div className="relative mt-5 rounded-2xl border border-slate-800 bg-slate-950 p-5 font-mono text-sm leading-8">
-              <p><span className="mr-5 text-slate-600">1</span><span className="text-fuchsia-300">function</span> <span className="text-cyan-200">buildTogether</span>() {'{'}</p>
-              <p><span className="mr-5 text-slate-600">2</span>  <span className="text-fuchsia-300">return</span> <span className="text-amber-200">'great ideas'</span>;</p>
+              <p><span className="mr-5 text-slate-600">1</span><span className="text-brand-300">function</span> <span className="text-brand-200">buildTogether</span>() {'{'}</p>
+              <p><span className="mr-5 text-slate-600">2</span>  <span className="text-brand-300">return</span> <span className="text-brand-100">'great ideas'</span>;</p>
               <p><span className="mr-5 text-slate-600">3</span>{'}'}</p>
-              <div className="absolute left-[7.55rem] top-[3.1rem] h-6 border-l-2 border-cyan-400" />
+              <div className="absolute left-[7.55rem] top-[3.1rem] h-6 border-l-2 border-brand-400" />
             </div>
             <div className="relative mt-4 flex items-center gap-2 text-xs text-slate-400">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/20 font-medium text-violet-200">JD</span>
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-500/20 font-medium text-brand-200">JD</span>
               <span>Jordan is collaborating</span>
             </div>
           </div>
@@ -208,7 +208,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
               Username
               <input
                 autoComplete="username"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-brand-400"
                 maxLength={30}
                 minLength={3}
                 name="username"
@@ -224,7 +224,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
             Email
             <input
               autoComplete="email"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-brand-400"
               name="email"
               onChange={updateField}
               required
@@ -236,7 +236,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
             Password
             <input
               autoComplete={isRegister ? 'new-password' : 'current-password'}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-brand-400"
               minLength={isRegister ? 8 : undefined}
               name="password"
               onChange={updateField}
@@ -250,7 +250,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
               Confirm password
               <input
                 autoComplete="new-password"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-brand-400"
                 name="confirmPassword"
                 onChange={updateField}
                 required
@@ -265,7 +265,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
             </p>
           )}
           <button
-            className="w-full rounded-lg bg-cyan-400 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg bg-brand-400 px-4 py-3 font-semibold text-slate-950 hover:bg-brand-300 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={busy}
             type="submit"
           >
@@ -275,7 +275,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
 
         <p className="mt-6 text-center text-sm text-slate-400">
           {isRegister ? 'Already have an account?' : 'New to CodeRoom?'}{' '}
-          <Link className="font-medium text-cyan-300 hover:text-cyan-200" to={isRegister ? '/login' : '/register'}>
+          <Link className="font-medium text-brand-300 hover:text-brand-200" to={isRegister ? '/login' : '/register'}>
             {isRegister ? 'Log in' : 'Create an account'}
           </Link>
         </p>
@@ -294,7 +294,7 @@ function RoomCard({ room, actionLabel, onAction, busy }) {
     <article className="group flex min-h-56 flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-5 transition hover:-translate-y-0.5 hover:border-slate-700 hover:bg-slate-900">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-400/15 bg-cyan-400/10 font-mono text-sm font-semibold text-cyan-200">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-brand-400/15 bg-brand-400/10 font-mono text-sm font-semibold text-brand-200">
             {'</>'}
           </span>
           <div className="min-w-0">
@@ -307,7 +307,7 @@ function RoomCard({ room, actionLabel, onAction, busy }) {
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium capitalize ${
           room.visibility === 'public'
             ? 'border border-emerald-400/15 bg-emerald-400/10 text-emerald-300'
-            : 'border border-violet-400/15 bg-violet-400/10 text-violet-300'
+            : 'border border-brand-400/15 bg-brand-400/10 text-brand-200'
         }`}>
           {room.visibility}
         </span>
@@ -329,7 +329,7 @@ function RoomCard({ room, actionLabel, onAction, busy }) {
           </p>
         </div>
         <button
-          className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-400/60 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-brand-400/60 hover:text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={busy}
           onClick={() => onAction(room)}
           type="button"
@@ -382,7 +382,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
       <section aria-labelledby="create-room-title" aria-modal="true" className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl" role="dialog">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-cyan-300">New workspace</p>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-brand-300">New workspace</p>
             <h2 className="mt-2 text-2xl font-semibold text-white" id="create-room-title">Create a room</h2>
           </div>
           <button aria-label="Close" className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" disabled={busy} onClick={onClose} type="button">✕</button>
@@ -393,7 +393,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
             Room name
             <input
               autoFocus
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-brand-400"
               maxLength={60}
               minLength={3}
               name="title"
@@ -406,7 +406,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
           <label className="block space-y-1.5 text-sm font-medium text-slate-300">
             Description <span className="font-normal text-slate-600">· optional</span>
             <textarea
-              className="min-h-24 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+              className="min-h-24 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-brand-400"
               maxLength={500}
               name="description"
               onChange={updateField}
@@ -418,7 +418,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
             <label className="block space-y-1.5 text-sm font-medium text-slate-300">
               Visibility
               <select
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-cyan-400"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400"
                 name="visibility"
                 onChange={updateField}
                 value={form.visibility}
@@ -430,7 +430,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
             <label className="block space-y-1.5 text-sm font-medium text-slate-300">
               Room capacity
               <select
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-cyan-400"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400"
                 name="maxMembers"
                 onChange={updateField}
                 value={form.maxMembers}
@@ -442,7 +442,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
           {error && <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200" role="alert">{error}</p>}
           <div className="flex justify-end gap-3 border-t border-slate-800 pt-4">
             <button className="rounded-lg px-4 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-50" disabled={busy} onClick={onClose} type="button">Cancel</button>
-            <button className="rounded-lg bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-300 disabled:opacity-50" disabled={busy} type="submit">
+            <button className="rounded-lg bg-brand-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-brand-300 disabled:opacity-50" disabled={busy} type="submit">
               {busy ? 'Creating…' : 'Create room'}
             </button>
           </div>
@@ -555,11 +555,11 @@ function DashboardPage({ currentUser, onLogout }) {
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <button className="hidden rounded-lg bg-cyan-400 px-3.5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-300 sm:inline-flex" onClick={() => setShowCreateDialog(true)} type="button">
+            <button className="hidden rounded-lg bg-brand-400 px-3.5 py-2 text-sm font-semibold text-slate-950 hover:bg-brand-300 sm:inline-flex" onClick={() => setShowCreateDialog(true)} type="button">
               <span className="mr-1.5 text-base">+</span> New room
             </button>
             <div className="flex items-center gap-2.5 border-l border-slate-800 pl-3 sm:pl-4">
-              <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full border border-violet-300/20 bg-violet-400/10 text-xs font-semibold uppercase text-violet-200">
+              <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full border border-brand-300/20 bg-brand-400/10 text-xs font-semibold uppercase text-brand-200">
                 {currentUser.username.slice(0, 2)}
               </span>
               <div className="hidden sm:block">
@@ -577,11 +577,11 @@ function DashboardPage({ currentUser, onLogout }) {
       <div className="mx-auto max-w-7xl px-5 pb-16 sm:px-8">
         <section className="flex flex-col justify-between gap-6 border-b border-slate-800/80 py-9 sm:flex-row sm:items-end">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Developer workspace</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-300">Developer workspace</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">Good to see you, {currentUser.username}.</h1>
             <p className="mt-2 text-sm text-slate-400">Pick up a project or find a room to build in.</p>
           </div>
-          <button className="inline-flex items-center justify-center rounded-xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-300 sm:hidden" onClick={() => setShowCreateDialog(true)} type="button">
+          <button className="inline-flex items-center justify-center rounded-xl bg-brand-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-brand-300 sm:hidden" onClick={() => setShowCreateDialog(true)} type="button">
             <span className="mr-2 text-lg">+</span> Create a room
           </button>
           <div className="hidden gap-3 sm:flex">
@@ -616,10 +616,10 @@ function DashboardPage({ currentUser, onLogout }) {
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 px-6 py-10 text-center">
-              <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-slate-800 font-mono text-sm text-cyan-200">{'{ }'}</span>
+              <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-slate-800 font-mono text-sm text-brand-200">{'{ }'}</span>
               <h3 className="mt-4 font-semibold text-white">Your first room starts here</h3>
               <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">Create a private workspace for your team, or join a public room below.</p>
-              <button className="mt-5 rounded-lg bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-300" onClick={() => setShowCreateDialog(true)} type="button">Create your first room</button>
+              <button className="mt-5 rounded-lg bg-brand-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-brand-300" onClick={() => setShowCreateDialog(true)} type="button">Create your first room</button>
             </div>
           )}
         </section>
@@ -634,7 +634,7 @@ function DashboardPage({ currentUser, onLogout }) {
               <span className="sr-only">Search public rooms</span>
               <span aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
               <input
-                className="w-full rounded-xl border border-slate-800 bg-slate-900/60 py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/60"
+                className="w-full rounded-xl border border-slate-800 bg-slate-900/60 py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-brand-400/60"
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search rooms…"
                 type="search"
@@ -716,16 +716,16 @@ function RoomPage({ currentUser }) {
           <section className="py-12">
             <div className="flex flex-wrap items-start justify-between gap-5">
               <div>
-                <button className="mb-5 text-xs text-slate-500 hover:text-cyan-300" onClick={() => navigate('/workspace')} type="button">← Dashboard</button>
+                <button className="mb-5 text-xs text-slate-500 hover:text-brand-300" onClick={() => navigate('/workspace')} type="button">← Dashboard</button>
                 <div className="flex items-center gap-3">
-                  <span className="grid h-12 w-12 place-items-center rounded-2xl border border-cyan-400/15 bg-cyan-400/10 font-mono text-cyan-200">{'</>'}</span>
+                  <span className="grid h-12 w-12 place-items-center rounded-2xl border border-brand-400/15 bg-brand-400/10 font-mono text-brand-200">{'</>'}</span>
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.15em] text-cyan-300">Coding room</p>
+                    <p className="text-xs font-medium uppercase tracking-[0.15em] text-brand-300">Coding room</p>
                     <h1 className="mt-1 text-3xl font-bold tracking-tight text-white">{room.title}</h1>
                   </div>
                 </div>
               </div>
-              <span className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize ${room.visibility === 'public' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-violet-400/10 text-violet-300'}`}>
+              <span className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize ${room.visibility === 'public' ? 'bg-brand-400/10 text-brand-200' : 'bg-slate-800 text-slate-300'}`}>
                 {room.visibility} room
               </span>
             </div>
@@ -745,7 +745,7 @@ function RoomPage({ currentUser }) {
               </div>
             </div>
             <div className="mt-10 rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 px-6 py-12 text-center">
-              <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-800 font-mono text-cyan-200">{'{ }'}</span>
+              <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-800 font-mono text-brand-200">{'{ }'}</span>
               <h2 className="mt-4 text-lg font-semibold text-white">Room is ready</h2>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">The shared editor and live collaboration tools are the next build phase. You can come back to this room from your dashboard.</p>
             </div>
@@ -760,10 +760,10 @@ function NotFoundPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-950 px-6 text-center text-slate-100">
       <div>
-        <p className="font-mono text-sm text-cyan-300">404 · not found</p>
+        <p className="font-mono text-sm text-brand-300">404 · not found</p>
         <h1 className="mt-3 text-3xl font-bold text-white">This page isn’t here.</h1>
         <p className="mt-2 text-sm text-slate-400">The address may be out of date, or the page may have moved.</p>
-        <Link className="mt-6 inline-flex rounded-lg bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-300" to="/">Back to CodeRoom</Link>
+        <Link className="mt-6 inline-flex rounded-lg bg-brand-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-brand-300" to="/">Back to CodeRoom</Link>
       </div>
     </main>
   );

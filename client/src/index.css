@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 :root {
+  --brand: #FA4028;
+  --brand-soft: #ff8c78;
+  --brand-deep: #cf2d1a;
   color: #e2e8f0;
   background: #020817;
   font-family: 'Inter', 'Segoe UI', sans-serif;
@@ -36,4 +39,14 @@ body {
 button,
 a {
   transition: all 0.2s ease;
+}
+
+::selection {
+  color: #fff;
+  background: var(--brand-deep);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
 }
