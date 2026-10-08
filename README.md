@@ -15,7 +15,11 @@ The `/workspace` frontend route and Socket.IO connections require a valid sessio
 
 ## Dashboard and rooms
 
-The authenticated dashboard at `/workspace` shows rooms you own or have joined, lets you search public rooms, and supports creating public or private rooms. Public rooms can be joined by signed-in users. Private rooms are visible only to their owner and members; private-room invitations and access requests are not part of this phase. Room pages are available at `/rooms/:roomId`; the collaborative editor is a later phase.
+The authenticated dashboard at `/workspace` shows rooms you own or have joined, lets you search public rooms, and supports creating public or private rooms. Room pages are available at `/rooms/:roomId`. Rooms persist their owner, members and member roles, file metadata, language/capacity settings, visibility, and timestamps. Guest access is disabled; participants must authenticate.
+
+Public rooms can be joined by signed-in users. Visitors to a private room can request access; the owner can approve or reject requests. Owners can update room settings or delete their rooms, while members can leave. These actions are enforced by the backend, not only hidden in the UI.
+
+To join a private room, sign in and open the room URL shared by its owner, then request access. The owner approves the request from the room page.
 
 Room API endpoints require the authentication cookie:
 
@@ -23,7 +27,15 @@ Room API endpoints require the authentication cookie:
 - `GET /api/rooms/mine` — list rooms you own or have joined.
 - `GET /api/rooms?search=...` — search public rooms you have not joined.
 - `POST /api/rooms/:roomId/join` — join a public room.
-- `GET /api/rooms/:roomId` — retrieve an accessible room.
+- `POST /api/rooms/:roomId/request-access` — request access to a private room.
+- `GET /api/rooms/:roomId/access-requests` — list requests (owner only).
+- `PATCH /api/rooms/:roomId/access-requests/:requesterId` — approve or reject a request (owner only).
+- `PATCH /api/rooms/:roomId` — update room settings (owner only).
+- `POST /api/rooms/:roomId/leave` — leave a room (members only).
+- `DELETE /api/rooms/:roomId` — delete a room (owner only).
+- `GET /api/rooms/:roomId` — retrieve a room or private-room access-request status.
+
+Room files currently begin with one empty starter file for the selected language. Collaborative editing, file operations, guest access, and moderator-role management are not included in this phase.
 
 ## Local setup
 

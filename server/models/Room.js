@@ -1,5 +1,53 @@
 const mongoose = require('mongoose');
 
+const roomFileSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100,
+    },
+    language: {
+      type: String,
+      required: true,
+      enum: ['javascript', 'typescript', 'python'],
+      default: 'javascript',
+    },
+    content: {
+      type: String,
+      default: '',
+      maxlength: 100000,
+    },
+  },
+  { timestamps: true },
+);
+
+const accessRequestSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+      required: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    resolvedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false },
+);
+
 const roomSchema = new mongoose.Schema(
   {
     title: {
@@ -31,11 +79,39 @@ const roomSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     }],
+    memberRoles: {
+      type: Map,
+      of: {
+        type: String,
+        enum: ['member'],
+        default: 'member',
+      },
+      default: () => new Map(),
+    },
     maxMembers: {
       type: Number,
       min: 2,
       max: 50,
       default: 10,
+    },
+    settings: {
+      defaultLanguage: {
+        type: String,
+        enum: ['javascript', 'typescript', 'python'],
+        default: 'javascript',
+      },
+      allowGuests: {
+        type: Boolean,
+        default: false,
+      },
+    },
+    files: {
+      type: [roomFileSchema],
+      default: () => [{ name: 'main.js', language: 'javascript', content: '' }],
+    },
+    accessRequests: {
+      type: [accessRequestSchema],
+      default: () => [],
     },
   },
   { timestamps: true },
