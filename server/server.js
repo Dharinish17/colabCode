@@ -35,6 +35,7 @@ const io = new Server(server, {
   },
 });
 configureSocket(io, { cookieName: COOKIE_NAME, jwtSecret, issuer: JWT_ISSUER });
+app.set('io', io);
 
 app.use(
   cors({

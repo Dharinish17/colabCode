@@ -8,6 +8,8 @@ const SUPPORTED_LANGUAGES = [
   'csharp',
   'go',
   'rust',
+  'php',
+  'ruby',
 ];
 
 const LANGUAGE_EXTENSIONS = {
@@ -20,6 +22,8 @@ const LANGUAGE_EXTENSIONS = {
   csharp: 'cs',
   go: 'go',
   rust: 'rs',
+  php: 'php',
+  ruby: 'rb',
 };
 
 module.exports = { LANGUAGE_EXTENSIONS, SUPPORTED_LANGUAGES };

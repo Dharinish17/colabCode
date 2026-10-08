@@ -4,6 +4,8 @@ const Room = require('../models/Room');
 const User = require('../models/User');
 const { LANGUAGE_EXTENSIONS, SUPPORTED_LANGUAGES } = require('../constants/languages');
 const { requireAuth } = require('../middleware/auth');
+const { updateRoomFile } = require('../services/roomFiles');
+const { disconnectRoom, disconnectRoomUser } = require('../socket/access');
 
 const router = express.Router();
 
@@ -53,6 +55,7 @@ function serializeRoom(room, userId) {
       name: file.name,
       language: file.language,
       content: file.content,
+      version: Number.isInteger(file.version) ? file.version : 0,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
     })),
@@ -734,6 +737,7 @@ router.delete('/:roomId/members/:memberId', async (req, res, next) => {
     if (!updated) {
       return res.status(403).json({ success: false, message: 'Your role does not permit removing this member.' });
     }
+    await disconnectRoomUser(req.app.get('io'), roomId, targetId);
     return res.json({ success: true, message: 'Member removed.' });
   } catch (err) {
     return next(err);
@@ -742,59 +746,39 @@ router.delete('/:roomId/members/:memberId', async (req, res, next) => {
 
 router.put('/:roomId/files/:fileId', async (req, res, next) => {
   const { roomId, fileId } = req.params;
-  const { content } = req.body || {};
+  const { content, version } = req.body || {};
   if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(fileId)) {
     return res.status(404).json({ success: false, message: 'Room or file not found.' });
   }
   if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 100000) {
     return res.status(400).json({ success: false, message: 'File content must be text no larger than 100 KB.' });
   }
+  if (!Number.isInteger(version) || version < 0) {
+    return res.status(400).json({ success: false, message: 'Provide the current non-negative file version.' });
+  }
 
   try {
-    const room = await roomById(roomId);
-    if (!room) {
-      return res.status(404).json({ success: false, message: 'Room not found.' });
-    }
-    const role = roleFor(room, req.user.id);
-    if (role === 'member' && room.settings?.allowMemberEdits === false) {
-      return res.status(403).json({ success: false, message: 'The owner has disabled editing for members.' });
-    }
-    if (!['owner', 'moderator', 'member'].includes(role)) {
-      return res.status(403).json({ success: false, message: 'Room access is required to edit files.' });
-    }
-
-    const filter = {
-      _id: roomId,
-      files: { $elemMatch: { _id: fileId } },
-      ...(role === 'owner'
-        ? { owner: req.user._id }
-        : { owner: room.owner._id, members: req.user._id }),
-    };
-    if (role === 'moderator') filter[memberRolePath(req.user._id)] = 'moderator';
-    if (role === 'member') {
-      filter['settings.allowMemberEdits'] = { $ne: false };
-      filter[memberRolePath(req.user._id)] = { $ne: 'moderator' };
-    }
-    const updated = await Room.findOneAndUpdate(
-      filter,
-      { $set: { 'files.$.content': content } },
-      { returnDocument: 'after', runValidators: true },
-    );
-    if (!updated) {
-      const isMember = room.members.some((member) => member._id.toString() === req.user.id);
-      if (!isMember && role !== 'owner') {
-        return res.status(403).json({ success: false, message: 'Join the room before editing files.' });
-      }
-      if (role === 'member' && room.settings?.allowMemberEdits === false) {
-        return res.status(403).json({ success: false, message: 'The owner has disabled editing for members.' });
-      }
-      return res.status(404).json({ success: false, message: 'File not found.' });
-    }
-    const file = updated.files.id(fileId);
-    return res.json({
-      success: true,
-      file: { id: file.id, name: file.name, language: file.language, content: file.content, updatedAt: file.updatedAt },
+    const result = await updateRoomFile({
+      roomId,
+      fileId,
+      userId: req.user._id,
+      content,
+      version,
     });
+    if (result.status === 'forbidden') {
+      return res.status(403).json({ success: false, message: result.message });
+    }
+    if (result.status === 'not-found') {
+      return res.status(404).json({ success: false, message: 'Room or file not found.' });
+    }
+    if (result.status === 'stale') {
+      return res.status(409).json({
+        success: false,
+        message: 'This file changed elsewhere. Review the latest version before continuing.',
+        file: result.file,
+      });
+    }
+    return res.json({ success: true, file: result.file });
   } catch (err) {
     return next(err);
   }
@@ -850,6 +834,7 @@ router.post('/:roomId/leave', async (req, res, next) => {
         message: existing ? 'You are not a member of this room, or owners cannot leave their own room.' : 'Room not found.',
       });
     }
+    await disconnectRoomUser(req.app.get('io'), req.params.roomId, req.user.id);
     return res.json({ success: true, message: 'You left the room.' });
   } catch (err) {
     return next(err);
@@ -870,6 +855,7 @@ router.delete('/:roomId', async (req, res, next) => {
         message: exists ? 'Only the room owner can delete this room.' : 'Room not found.',
       });
     }
+    await disconnectRoom(req.app.get('io'), req.params.roomId);
     return res.json({ success: true, message: 'Room deleted.' });
   } catch (err) {
     return next(err);

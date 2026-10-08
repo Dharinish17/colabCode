@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import Editor from '@monaco-editor/react';
+import { useCallback, useEffect, useState } from 'react';
+import { EDITOR_LANGUAGES } from './constants/editorLanguages';
+import { useCollaborativeEditor } from './hooks/useCollaborativeEditor';
 import { useRoomPresence } from './hooks/useRoomPresence';
 import {
   BrowserRouter,
@@ -12,17 +15,7 @@ import {
 } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const ROOM_LANGUAGES = [
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
-  { value: 'python', label: 'Python' },
-  { value: 'java', label: 'Java' },
-  { value: 'c', label: 'C' },
-  { value: 'cpp', label: 'C++' },
-  { value: 'csharp', label: 'C#' },
-  { value: 'go', label: 'Go' },
-  { value: 'rust', label: 'Rust' },
-];
+const ROOM_LANGUAGES = EDITOR_LANGUAGES.map(({ id, label }) => ({ value: id, label }));
 
 async function requestAuth(endpoint, body) {
   const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
@@ -706,7 +699,6 @@ function RoomPage({ currentUser }) {
   const [room, setRoom] = useState(null);
   const [accessRequests, setAccessRequests] = useState([]);
   const [activeFileId, setActiveFileId] = useState('');
-  const [fileDraft, setFileDraft] = useState('');
   const [settingsForm, setSettingsForm] = useState({
     title: '',
     description: '',
@@ -722,6 +714,30 @@ function RoomPage({ currentUser }) {
   const canJoinLivePresence = Boolean(room?.isOwner || room?.isMember);
   const presence = useRoomPresence(roomId, canJoinLivePresence);
   const onlineUserIds = new Set(presence.users.map((user) => user.id));
+  useEffect(() => {
+    if (['ROOM_ACCESS_REVOKED', 'ROOM_DELETED'].includes(presence.errorCode)) {
+      navigate('/workspace', { replace: true });
+    }
+  }, [navigate, presence.errorCode]);
+  const activeFile = room?.files?.find((file) => file.id === activeFileId) || null;
+  const [editorSettings, setEditorSettings] = useState({
+    theme: 'vs-dark',
+    fontSize: 14,
+    minimap: false,
+    wordWrap: 'on',
+  });
+  const updateRoomFile = useCallback((updatedFile) => {
+    setRoom((current) => current && ({
+      ...current,
+      files: current.files.map((file) => file.id === updatedFile.id ? updatedFile : file),
+    }));
+  }, []);
+  const collaborativeEditor = useCollaborativeEditor({
+    socket: presence.socket,
+    roomId,
+    file: activeFile,
+    onFileUpdate: updateRoomFile,
+  });
 
   async function loadRoom() {
     const result = await requestRooms(`/${roomId}`);
@@ -731,10 +747,6 @@ function RoomPage({ currentUser }) {
         ? current
         : result.room.files[0]?.id || '',
     );
-    setFileDraft((current) => {
-      const active = result.room.files.find((file) => file.id === activeFileId) || result.room.files[0];
-      return active ? active.content : current;
-    });
     setSettingsForm({
       title: result.room.title,
       description: result.room.description || '',
@@ -765,7 +777,6 @@ function RoomPage({ currentUser }) {
         if (!active) return;
         setRoom(result.room);
         setActiveFileId(result.room.files?.[0]?.id || '');
-        setFileDraft(result.room.files?.[0]?.content || '');
         setSettingsForm({
           title: result.room.title,
           description: result.room.description || '',
@@ -896,21 +907,6 @@ function RoomPage({ currentUser }) {
     });
   }
 
-  function handleFileSave(event) {
-    event.preventDefault();
-    performAction('save-file', async () => {
-      const result = await requestRooms(`/${roomId}/files/${activeFileId}`, {
-        method: 'PUT',
-        body: { content: fileDraft },
-      });
-      setRoom((current) => ({
-        ...current,
-        files: current.files.map((file) => file.id === result.file.id ? result.file : file),
-      }));
-      return 'File saved.';
-    });
-  }
-
   function handleLeave() {
     if (!window.confirm('Leave this room?')) return;
     performAction('leave', async () => {
@@ -1018,53 +1014,137 @@ function RoomPage({ currentUser }) {
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.15em] text-slate-500">Workspace contents</p>
-                    <h2 className="mt-1 text-lg font-semibold text-white">Files</h2>
+                    <p className="text-xs font-medium uppercase tracking-[0.15em] text-slate-500">Collaborative workspace</p>
+                    <h2 className="mt-1 text-lg font-semibold text-white">Code editor</h2>
                   </div>
-                  <span className="text-xs text-slate-500">{room.files?.length || 0} files</span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs ${
+                    collaborativeEditor.syncStatus === 'saved'
+                      ? 'bg-emerald-400/10 text-emerald-300'
+                      : collaborativeEditor.syncStatus === 'conflict' || collaborativeEditor.syncStatus === 'error'
+                        ? 'bg-rose-400/10 text-rose-300'
+                        : 'bg-amber-400/10 text-amber-300'
+                  }`}>
+                    {collaborativeEditor.syncStatus === 'saved' ? 'All changes saved'
+                      : collaborativeEditor.syncStatus === 'saving' ? 'Saving…'
+                        : collaborativeEditor.syncStatus === 'conflict' ? 'Conflict'
+                          : collaborativeEditor.syncStatus === 'offline' ? 'Offline · changes pending'
+                            : collaborativeEditor.syncStatus === 'error' ? 'Sync failed'
+                              : 'Unsaved changes'}
+                  </span>
                 </div>
                 {room.files?.length ? (
-                  <ul className="mt-4 space-y-2">
+                  <div aria-label="Open files" className="mt-5 flex overflow-x-auto border-b border-slate-800" role="tablist">
                     {room.files.map((file) => (
-                      <li className={`flex items-center justify-between rounded-xl border px-4 py-3 ${activeFileId === file.id ? 'border-brand-400/40 bg-brand-400/5' : 'border-slate-800 bg-slate-950/60'}`} key={file.id}>
-                        <span className="flex min-w-0 items-center gap-3">
-                          <span className="font-mono text-brand-300">▤</span>
-                          <button className="truncate font-mono text-sm text-slate-200 hover:text-brand-200" onClick={() => { setActiveFileId(file.id); setFileDraft(file.content); }} type="button">{file.name}</button>
-                        </span>
-                        <span className="ml-3 shrink-0 text-xs capitalize text-slate-500">{file.language}</span>
-                      </li>
+                      <button
+                        aria-selected={activeFileId === file.id}
+                        className={`shrink-0 border-b-2 px-4 py-2.5 font-mono text-xs ${
+                          activeFileId === file.id
+                            ? 'border-brand-400 bg-slate-950/70 text-white'
+                            : 'border-transparent text-slate-500 hover:text-slate-200'
+                        } disabled:cursor-not-allowed disabled:opacity-40`}
+                        disabled={activeFileId !== file.id && collaborativeEditor.syncStatus !== 'saved'}
+                        key={file.id}
+                        onClick={() => setActiveFileId(file.id)}
+                        role="tab"
+                        type="button"
+                      >
+                        {file.name}
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 ) : (
                   <p className="mt-4 rounded-xl border border-dashed border-slate-700 px-4 py-6 text-center text-sm text-slate-500">No files in this workspace yet.</p>
                 )}
-                {activeFileId && (
-                  <form className="mt-4 space-y-3" onSubmit={handleFileSave}>
-                    <label className="block space-y-2 text-xs font-medium text-slate-400">
-                      {room.files.find((file) => file.id === activeFileId)?.name || 'File content'}
-                      <textarea
-                        className="min-h-48 w-full resize-y rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-sm leading-6 text-slate-200 outline-none focus:border-brand-400"
-                        disabled={!room.isOwner && room.currentRole !== 'moderator' && room.settings?.allowMemberEdits === false}
-                        maxLength={100000}
-                        onChange={(event) => setFileDraft(event.target.value)}
-                        value={fileDraft}
-                      />
-                    </label>
-                    {(room.isOwner || room.currentRole === 'moderator' || room.settings?.allowMemberEdits !== false) ? (
-                      <div className="flex justify-end">
-                        <button className="rounded-lg bg-brand-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-brand-300 disabled:opacity-50" disabled={Boolean(busyAction)} type="submit">
-                          {busyAction === 'save-file' ? 'Saving…' : 'Save file'}
-                        </button>
+                {activeFile && (
+                  <>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-xs text-slate-500">{activeFile.name} · {activeFile.language}</span>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                        <label className="flex items-center gap-2">
+                          Theme
+                          <select
+                            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200"
+                            onChange={(event) => setEditorSettings((current) => ({ ...current, theme: event.target.value }))}
+                            value={editorSettings.theme}
+                          >
+                            <option value="vs-dark">Dark</option>
+                            <option value="light">Light</option>
+                          </select>
+                        </label>
+                        <label className="flex items-center gap-2">
+                          Font
+                          <select
+                            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200"
+                            onChange={(event) => setEditorSettings((current) => ({ ...current, fontSize: Number(event.target.value) }))}
+                            value={editorSettings.fontSize}
+                          >
+                            {[12, 14, 16, 18, 20].map((size) => <option key={size} value={size}>{size}px</option>)}
+                          </select>
+                        </label>
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            checked={editorSettings.minimap}
+                            onChange={(event) => setEditorSettings((current) => ({ ...current, minimap: event.target.checked }))}
+                            type="checkbox"
+                          />
+                          Minimap
+                        </label>
+                        <label className="flex items-center gap-2">
+                          Wrap
+                          <select
+                            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200"
+                            onChange={(event) => setEditorSettings((current) => ({ ...current, wordWrap: event.target.value }))}
+                            value={editorSettings.wordWrap}
+                          >
+                            <option value="on">On</option>
+                            <option value="off">Off</option>
+                          </select>
+                        </label>
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-500">Editing is disabled for members by the owner.</p>
+                    </div>
+                    <div className="mt-3 overflow-hidden rounded-xl border border-slate-800">
+                      <Editor
+                        height="min(65vh, 680px)"
+                        language={EDITOR_LANGUAGES.some((language) => language.id === activeFile.language) ? activeFile.language : 'plaintext'}
+                        onChange={(value) => collaborativeEditor.changeDraft(value ?? '')}
+                        options={{
+                          automaticLayout: true,
+                          fontSize: editorSettings.fontSize,
+                          minimap: { enabled: editorSettings.minimap },
+                          readOnly: !room.isOwner && room.currentRole !== 'moderator' && (
+                            !room.isMember || room.settings?.allowMemberEdits === false
+                          ),
+                          scrollBeyondLastLine: false,
+                          tabSize: 2,
+                          wordWrap: editorSettings.wordWrap,
+                        }}
+                        theme={editorSettings.theme}
+                        value={collaborativeEditor.draft}
+                      />
+                    </div>
+                    {collaborativeEditor.conflictFile && (
+                      <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3" role="alert">
+                        <p className="text-sm text-amber-200">
+                          This file changed in another session. Your draft is preserved; choose which version to use.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button className="rounded-md border border-amber-300/30 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-300/10" onClick={() => collaborativeEditor.resolveConflict('latest')} type="button">Load latest version</button>
+                          <button className="rounded-md bg-amber-300 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-200" onClick={() => collaborativeEditor.resolveConflict('mine')} type="button">Keep my draft</button>
+                        </div>
+                      </div>
                     )}
-                  </form>
+                    {!room.isOwner && room.currentRole !== 'moderator' && !room.isMember && (
+                      <p className="mt-2 text-xs text-slate-500">Join this room to edit the file.</p>
+                    )}
+                    {!room.isOwner && room.currentRole !== 'moderator' && room.isMember && room.settings?.allowMemberEdits === false && (
+                      <p className="mt-2 text-xs text-slate-500">Editing is disabled for members by the owner.</p>
+                    )}
+                  </>
                 )}
                 <a className="mt-4 inline-flex text-xs font-medium text-brand-300 hover:text-brand-200" href={`${API_URL}/api/rooms/${roomId}/download`} rel="noreferrer">
                   Download workspace
                 </a>
-                <p className="mt-2 text-xs leading-5 text-slate-600">Live multi-user editing and execution are part of later phases.</p>
+                <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code execution is planned for a later phase.</p>
               </section>
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">

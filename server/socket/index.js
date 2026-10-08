@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const Room = require('../models/Room');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
+const { fileVersion, updateRoomFile } = require('../services/roomFiles');
+const { roomChannel } = require('./access');
 const EVENTS = require('./events');
 
 function parseCookies(header) {
@@ -16,10 +18,6 @@ function parseCookies(header) {
     }
   }
   return cookies;
-}
-
-function roomChannel(roomId) {
-  return `room:${roomId}`;
 }
 
 function listPresence(roomPresence) {
@@ -38,6 +36,28 @@ function acknowledge(socket, callback, response) {
 
 function configureSocket(io, { cookieName, jwtSecret, issuer }) {
   const presenceByRoom = new Map();
+
+  async function emitToRoomMembers(roomId, excludedSocketId, event, payload) {
+    const room = await Room.findById(roomId).select('_id owner members').lean();
+    if (!room) return;
+    const memberIds = new Set([
+      room.owner.toString(),
+      ...(room.members || []).map((member) => member.toString()),
+    ]);
+    const sockets = await io.in(roomChannel(roomId)).fetchSockets();
+    await Promise.all(sockets.map(async (recipient) => {
+      const userId = recipient.data.user?.id;
+      if (!memberIds.has(userId)) {
+        recipient.emit(EVENTS.ROOM_ERROR, {
+          code: 'ROOM_ACCESS_REVOKED',
+          message: 'Your access to this room has changed.',
+        });
+        await recipient.disconnect(true);
+      } else if (recipient.id !== excludedSocketId) {
+        recipient.emit(event, payload);
+      }
+    }));
+  }
 
   io.use(async (socket, next) => {
     const token = parseCookies(socket.handshake.headers.cookie || '')[cookieName];
@@ -96,7 +116,7 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
       }
 
       try {
-        const room = await Room.findById(roomId).select('_id owner members').lean();
+        const room = await Room.findById(roomId).select('_id owner members files').lean();
         const userId = socket.data.user.id;
         const isOwner = room?.owner.toString() === userId;
         const isMember = room?.members?.some((member) => member.toString() === userId) === true;
@@ -138,6 +158,14 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
 
         const users = listPresence(roomPresence);
         socket.emit(EVENTS.PRESENCE_SNAPSHOT, { roomId, users });
+        socket.emit(EVENTS.EDITOR_STATE, {
+          roomId,
+          files: room.files.map((file) => ({
+            ...file,
+            id: file._id.toString(),
+            version: fileVersion(file),
+          })),
+        });
         if (becameOnline) {
           socket.to(roomChannel(roomId)).emit(EVENTS.PRESENCE_USER_ONLINE, {
             roomId,
@@ -151,6 +179,93 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
           success: false,
           code: 'ROOM_JOIN_FAILED',
           message: 'Unable to join live room presence.',
+        });
+      }
+    });
+
+    socket.on(EVENTS.EDITOR_CHANGE, async (payload, callback) => {
+      const roomId = payload?.roomId;
+      const fileId = payload?.fileId;
+      const { content, version, clientChangeId } = payload || {};
+      if (
+        !mongoose.isObjectIdOrHexString(roomId) ||
+        !mongoose.isObjectIdOrHexString(fileId) ||
+        typeof content !== 'string' ||
+        Buffer.byteLength(content, 'utf8') > 100000 ||
+        !Number.isInteger(version) ||
+        version < 0 ||
+        typeof clientChangeId !== 'string' ||
+        clientChangeId.length > 100
+      ) {
+        const response = {
+          success: false,
+          code: 'INVALID_EDITOR_CHANGE',
+          message: 'Provide a valid room, file, content, version, and change ID.',
+        };
+        return acknowledge(socket, callback, response);
+      }
+      if (!socket.data.joinedRooms.has(roomId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'ROOM_NOT_JOINED',
+          message: 'Join the room before editing its files.',
+        });
+      }
+
+      try {
+        const result = await updateRoomFile({
+          roomId,
+          fileId,
+          userId: socket.data.user.id,
+          content,
+          version,
+        });
+        if (result.status === 'forbidden') {
+          if (result.reason === 'not-member') {
+            socket.emit(EVENTS.ROOM_ERROR, {
+              code: 'ROOM_ACCESS_REVOKED',
+              message: result.message,
+            });
+            socket.disconnect(true);
+          }
+          return acknowledge(socket, callback, {
+            success: false,
+            code: 'EDIT_NOT_ALLOWED',
+            message: result.message,
+          });
+        }
+        if (result.status === 'not-found') {
+          return acknowledge(socket, callback, {
+            success: false,
+            code: 'FILE_NOT_FOUND',
+            message: 'The room or file no longer exists.',
+          });
+        }
+        if (result.status === 'stale') {
+          const response = {
+            success: false,
+            code: 'STALE_FILE',
+            message: 'This file changed elsewhere. Review the latest version before continuing.',
+            file: result.file,
+          };
+          socket.emit(EVENTS.EDITOR_CONFLICT, { roomId, file: result.file });
+          return acknowledge(socket, callback, response);
+        }
+
+        const update = {
+          roomId,
+          file: result.file,
+          actor: socket.data.user,
+          clientChangeId,
+        };
+        await emitToRoomMembers(roomId, socket.id, EVENTS.EDITOR_UPDATE, update);
+        return acknowledge(socket, callback, { success: true, ...update });
+      } catch (error) {
+        console.error('Socket editor update failed:', error);
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'EDITOR_UPDATE_FAILED',
+          message: 'Unable to persist the editor change.',
         });
       }
     });
