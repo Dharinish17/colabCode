@@ -84,7 +84,7 @@ const roomSchema = new mongoose.Schema(
       type: Map,
       of: {
         type: String,
-        enum: ['member'],
+        enum: ['moderator', 'member'],
         default: 'member',
       },
       default: () => new Map(),
@@ -105,6 +105,10 @@ const roomSchema = new mongoose.Schema(
         type: Boolean,
         default: false,
       },
+      allowMemberEdits: {
+        type: Boolean,
+        default: true,
+      },
     },
     files: {
       type: [roomFileSchema],
@@ -115,7 +119,7 @@ const roomSchema = new mongoose.Schema(
       default: () => [],
     },
   },
-  { timestamps: true },
+  { timestamps: true, optimisticConcurrency: true },
 );
 
 roomSchema.index({ visibility: 1, createdAt: -1 });

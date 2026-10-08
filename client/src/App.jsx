@@ -62,7 +62,7 @@ function Brand({ light = false }) {
       <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-400 font-mono text-lg text-slate-950">
         {'</>'}
       </span>
-      CodeRoom
+      colabCode
     </Link>
   );
 }
@@ -285,7 +285,7 @@ function AuthPage({ mode, onLogin, authLoadError }) {
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-400">
-          {isRegister ? 'Already have an account?' : 'New to CodeRoom?'}{' '}
+          {isRegister ? 'Already have an account?' : 'New to colabCode?'}{' '}
           <Link className="font-medium text-brand-300 hover:text-brand-200" to={isRegister ? '/login' : '/register'}>
             {isRegister ? 'Log in' : 'Create an account'}
           </Link>
@@ -359,6 +359,7 @@ function CreateRoomDialog({ onClose, onCreated }) {
     visibility: 'public',
     maxMembers: 10,
     defaultLanguage: 'javascript',
+    allowMemberEdits: true,
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -463,6 +464,10 @@ function CreateRoomDialog({ onClose, onCreated }) {
                 <option key={language.value} value={language.value}>{language.label}</option>
               ))}
             </select>
+          </label>
+          <label className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-sm text-slate-300">
+            <input checked={form.allowMemberEdits} className="accent-brand-400" name="allowMemberEdits" onChange={(event) => setForm((current) => ({ ...current, allowMemberEdits: event.target.checked }))} type="checkbox" />
+            Allow members to edit files
           </label>
           <p className="text-xs text-slate-500">Guest access is disabled; participants must sign in.</p>
           {error && <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200" role="alert">{error}</p>}
@@ -699,12 +704,15 @@ function RoomPage({ currentUser }) {
   const navigate = useNavigate();
   const [room, setRoom] = useState(null);
   const [accessRequests, setAccessRequests] = useState([]);
+  const [activeFileId, setActiveFileId] = useState('');
+  const [fileDraft, setFileDraft] = useState('');
   const [settingsForm, setSettingsForm] = useState({
     title: '',
     description: '',
     visibility: 'public',
     maxMembers: 10,
     defaultLanguage: 'javascript',
+    allowMemberEdits: true,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -714,14 +722,27 @@ function RoomPage({ currentUser }) {
   async function loadRoom() {
     const result = await requestRooms(`/${roomId}`);
     setRoom(result.room);
+    setActiveFileId((current) =>
+      result.room.files.some((file) => file.id === current)
+        ? current
+        : result.room.files[0]?.id || '',
+    );
+    setFileDraft((current) => {
+      const active = result.room.files.find((file) => file.id === activeFileId) || result.room.files[0];
+      return active ? active.content : current;
+    });
     setSettingsForm({
       title: result.room.title,
       description: result.room.description || '',
       visibility: result.room.visibility,
       maxMembers: result.room.maxMembers,
       defaultLanguage: result.room.settings?.defaultLanguage || 'javascript',
+      allowMemberEdits: result.room.settings?.allowMemberEdits !== false,
     });
-    if (result.room.isOwner && result.room.visibility === 'private') {
+    if (
+      (result.room.isOwner || result.room.currentRole === 'moderator') &&
+      result.room.visibility === 'private'
+    ) {
       const requestResult = await requestRooms(`/${roomId}/access-requests`);
       setAccessRequests(requestResult.requests);
     } else {
@@ -739,14 +760,20 @@ function RoomPage({ currentUser }) {
       .then(async (result) => {
         if (!active) return;
         setRoom(result.room);
+        setActiveFileId(result.room.files?.[0]?.id || '');
+        setFileDraft(result.room.files?.[0]?.content || '');
         setSettingsForm({
           title: result.room.title,
           description: result.room.description || '',
           visibility: result.room.visibility,
           maxMembers: result.room.maxMembers,
           defaultLanguage: result.room.settings?.defaultLanguage || 'javascript',
+          allowMemberEdits: result.room.settings?.allowMemberEdits !== false,
         });
-        if (result.room.isOwner && result.room.visibility === 'private') {
+        if (
+          (result.room.isOwner || result.room.currentRole === 'moderator') &&
+          result.room.visibility === 'private'
+        ) {
           const requestResult = await requestRooms(`/${roomId}/access-requests`);
           if (active) setAccessRequests(requestResult.requests);
         } else {
@@ -797,9 +824,19 @@ function RoomPage({ currentUser }) {
   function handleSettingsSubmit(event) {
     event.preventDefault();
     performAction('settings', async () => {
+      const settings = room.isOwner
+        ? { ...settingsForm }
+        : {
+          description: settingsForm.description,
+          defaultLanguage: settingsForm.defaultLanguage,
+          allowMemberEdits: settingsForm.allowMemberEdits,
+        };
       const result = await requestRooms(`/${roomId}`, {
         method: 'PATCH',
-        body: { ...settingsForm, maxMembers: Number(settingsForm.maxMembers) },
+        body: {
+          ...settings,
+          ...(room.isOwner ? { maxMembers: Number(settingsForm.maxMembers) } : {}),
+        },
       });
       setRoom(result.room);
       if (result.room.visibility === 'private' && result.room.isOwner) {
@@ -820,6 +857,53 @@ function RoomPage({ currentUser }) {
       });
       await loadRoom();
       return `Access request ${decision === 'approve' ? 'approved' : 'rejected'}.`;
+    });
+  }
+
+  function handleRoleChange(memberId, role) {
+    performAction(`role-${memberId}`, async () => {
+      await requestRooms(`/${roomId}/members/${memberId}/role`, {
+        method: 'PATCH',
+        body: { role },
+      });
+      await loadRoom();
+      return `Member role updated to ${role}.`;
+    });
+  }
+
+  function handleMemberRemoval(member) {
+    if (!window.confirm(`Remove ${member.username} from this room?`)) return;
+    performAction(`remove-${member.id}`, async () => {
+      await requestRooms(`/${roomId}/members/${member.id}`, { method: 'DELETE' });
+      await loadRoom();
+      return `${member.username} was removed from the room.`;
+    });
+  }
+
+  function handleTransferOwnership(member) {
+    if (!window.confirm(`Transfer ownership to ${member.username}? You will become a member.`)) return;
+    performAction('transfer', async () => {
+      await requestRooms(`/${roomId}/transfer-ownership`, {
+        method: 'POST',
+        body: { memberId: member.id },
+      });
+      await loadRoom();
+      return `Ownership transferred to ${member.username}.`;
+    });
+  }
+
+  function handleFileSave(event) {
+    event.preventDefault();
+    performAction('save-file', async () => {
+      const result = await requestRooms(`/${roomId}/files/${activeFileId}`, {
+        method: 'PUT',
+        body: { content: fileDraft },
+      });
+      setRoom((current) => ({
+        ...current,
+        files: current.files.map((file) => file.id === result.file.id ? result.file : file),
+      }));
+      return 'File saved.';
     });
   }
 
@@ -938,10 +1022,10 @@ function RoomPage({ currentUser }) {
                 {room.files?.length ? (
                   <ul className="mt-4 space-y-2">
                     {room.files.map((file) => (
-                      <li className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3" key={file.id}>
+                      <li className={`flex items-center justify-between rounded-xl border px-4 py-3 ${activeFileId === file.id ? 'border-brand-400/40 bg-brand-400/5' : 'border-slate-800 bg-slate-950/60'}`} key={file.id}>
                         <span className="flex min-w-0 items-center gap-3">
                           <span className="font-mono text-brand-300">▤</span>
-                          <span className="truncate font-mono text-sm text-slate-200">{file.name}</span>
+                          <button className="truncate font-mono text-sm text-slate-200 hover:text-brand-200" onClick={() => { setActiveFileId(file.id); setFileDraft(file.content); }} type="button">{file.name}</button>
                         </span>
                         <span className="ml-3 shrink-0 text-xs capitalize text-slate-500">{file.language}</span>
                       </li>
@@ -950,7 +1034,33 @@ function RoomPage({ currentUser }) {
                 ) : (
                   <p className="mt-4 rounded-xl border border-dashed border-slate-700 px-4 py-6 text-center text-sm text-slate-500">No files in this workspace yet.</p>
                 )}
-                <p className="mt-4 text-xs leading-5 text-slate-600">File editing and live collaboration are scheduled for a later phase.</p>
+                {activeFileId && (
+                  <form className="mt-4 space-y-3" onSubmit={handleFileSave}>
+                    <label className="block space-y-2 text-xs font-medium text-slate-400">
+                      {room.files.find((file) => file.id === activeFileId)?.name || 'File content'}
+                      <textarea
+                        className="min-h-48 w-full resize-y rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-sm leading-6 text-slate-200 outline-none focus:border-brand-400"
+                        disabled={!room.isOwner && room.currentRole !== 'moderator' && room.settings?.allowMemberEdits === false}
+                        maxLength={100000}
+                        onChange={(event) => setFileDraft(event.target.value)}
+                        value={fileDraft}
+                      />
+                    </label>
+                    {(room.isOwner || room.currentRole === 'moderator' || room.settings?.allowMemberEdits !== false) ? (
+                      <div className="flex justify-end">
+                        <button className="rounded-lg bg-brand-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-brand-300 disabled:opacity-50" disabled={Boolean(busyAction)} type="submit">
+                          {busyAction === 'save-file' ? 'Saving…' : 'Save file'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">Editing is disabled for members by the owner.</p>
+                    )}
+                  </form>
+                )}
+                <a className="mt-4 inline-flex text-xs font-medium text-brand-300 hover:text-brand-200" href={`${API_URL}/api/rooms/${roomId}/download`} rel="noreferrer">
+                  Download workspace
+                </a>
+                <p className="mt-2 text-xs leading-5 text-slate-600">Live multi-user editing and execution are part of later phases.</p>
               </section>
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
@@ -967,27 +1077,48 @@ function RoomPage({ currentUser }) {
                     </li>
                   ))}
                 </ul>
-                {room.isOwner && (
-                  <p className="mt-4 text-xs text-slate-600">Member role management will be available in the roles phase.</p>
+                {(room.isOwner || room.currentRole === 'moderator') && (
+                  <ul className="mt-4 space-y-2 border-t border-slate-800 pt-4">
+                    {room.members.filter((member) => member.role !== 'owner').map((member) => (
+                      <li className="flex flex-wrap items-center justify-between gap-2 text-xs" key={`manage-${member.id}`}>
+                        <span className="text-slate-400">{member.username} <span className="text-slate-600">· {member.role}</span></span>
+                        <div className="flex flex-wrap gap-2">
+                          {room.isOwner && (
+                            <>
+                              <button className="rounded-md border border-slate-700 px-2 py-1 text-slate-300 hover:border-brand-400/50 hover:text-brand-200 disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => handleRoleChange(member.id, member.role === 'moderator' ? 'member' : 'moderator')} type="button">
+                                {member.role === 'moderator' ? 'Demote' : 'Make moderator'}
+                              </button>
+                              <button className="rounded-md border border-slate-700 px-2 py-1 text-slate-300 hover:border-brand-400/50 hover:text-brand-200 disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => handleTransferOwnership(member)} type="button">Transfer ownership</button>
+                            </>
+                          )}
+                          {(room.isOwner || member.role === 'member') && (
+                            <button className="rounded-md border border-rose-500/20 px-2 py-1 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => handleMemberRemoval(member)} type="button">Remove</button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </section>
             </div>
 
-            {room.isOwner && (
+            {(room.isOwner || room.currentRole === 'moderator') && (
               <div className="mt-8 space-y-4">
                 <details className="rounded-2xl border border-slate-800 bg-slate-900/40">
                   <summary className="cursor-pointer list-none px-5 py-4">
                     <span className="font-medium text-white">Room settings</span>
-                    <span className="ml-2 text-xs text-slate-500">Owner only · {room.settings?.defaultLanguage || 'javascript'}</span>
+                    <span className="ml-2 text-xs text-slate-500">{room.isOwner ? 'Owner' : 'Moderator'} · {room.settings?.defaultLanguage || 'javascript'}</span>
                   </summary>
                   <form className="space-y-4 border-t border-slate-800 p-5" onSubmit={handleSettingsSubmit}>
-                    <label className="block space-y-1.5 text-sm text-slate-300">Room title
-                      <input className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400" maxLength={60} minLength={3} name="title" onChange={updateSettings} required value={settingsForm.title} />
-                    </label>
+                    {room.isOwner && (
+                      <label className="block space-y-1.5 text-sm text-slate-300">Room title
+                        <input className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400" maxLength={60} minLength={3} name="title" onChange={updateSettings} required value={settingsForm.title} />
+                      </label>
+                    )}
                     <label className="block space-y-1.5 text-sm text-slate-300">Description
                       <textarea className="min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400" maxLength={500} name="description" onChange={updateSettings} value={settingsForm.description} />
                     </label>
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    {room.isOwner && <div className="grid gap-4 sm:grid-cols-3">
                       <label className="block space-y-1.5 text-sm text-slate-300">Visibility
                         <select className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400" name="visibility" onChange={updateSettings} value={settingsForm.visibility}>
                           <option value="public">Public</option>
@@ -1006,7 +1137,13 @@ function RoomPage({ currentUser }) {
                           ))}
                         </select>
                       </label>
-                    </div>
+                    </div>}
+                    {(room.isOwner || room.currentRole === 'moderator') && (
+                      <label className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-sm text-slate-300">
+                        <input checked={settingsForm.allowMemberEdits} className="accent-brand-400" name="allowMemberEdits" onChange={(event) => setSettingsForm((current) => ({ ...current, allowMemberEdits: event.target.checked }))} type="checkbox" />
+                        Allow members to edit files
+                      </label>
+                    )}
                     <p className="text-xs text-slate-500">Guest access is disabled; room users must authenticate.</p>
                     <div className="flex justify-end">
                       <button className="rounded-lg bg-brand-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-brand-300 disabled:opacity-50" disabled={Boolean(busyAction)} type="submit">
@@ -1080,7 +1217,7 @@ function NotFoundPage() {
         <p className="font-mono text-sm text-brand-300">404 · not found</p>
         <h1 className="mt-3 text-3xl font-bold text-white">This page isn’t here.</h1>
         <p className="mt-2 text-sm text-slate-400">The address may be out of date, or the page may have moved.</p>
-        <Link className="mt-6 inline-flex rounded-lg bg-brand-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-brand-300" to="/">Back to CodeRoom</Link>
+        <Link className="mt-6 inline-flex rounded-lg bg-brand-400 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-brand-300" to="/">Back to colabCode</Link>
       </div>
     </main>
   );

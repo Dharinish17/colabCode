@@ -46,6 +46,7 @@ function serializeRoom(room, userId) {
     settings: {
       defaultLanguage: room.settings?.defaultLanguage || 'javascript',
       allowGuests: room.settings?.allowGuests === true,
+      allowMemberEdits: room.settings?.allowMemberEdits !== false,
     },
     files: (room.files || []).map((file) => ({
       id: file.id,
@@ -60,11 +61,30 @@ function serializeRoom(room, userId) {
     updatedAt: room.updatedAt,
     isOwner,
     isMember,
+    currentRole: isOwner ? 'owner' : isMember ? roleFor(room, userId) : null,
   };
 }
 
 function memberId(member) {
   return member._id ? member._id.toString() : member.toString();
+}
+
+function roleFor(room, userId) {
+  if ((room.owner._id ? room.owner._id.toString() : room.owner.toString()) === userId.toString()) {
+    return 'owner';
+  }
+  const roles = room.memberRoles instanceof Map
+    ? room.memberRoles
+    : new Map(Object.entries(room.memberRoles || {}));
+  return roles.get(userId.toString()) || 'member';
+}
+
+function canManageMembers(room, userId) {
+  return ['owner', 'moderator'].includes(roleFor(room, userId));
+}
+
+function memberRolePath(userId) {
+  return `memberRoles.${userId.toString()}`;
 }
 
 function roomQuery() {
@@ -103,6 +123,7 @@ router.post('/', async (req, res, next) => {
     visibility = 'public',
     maxMembers = 10,
     defaultLanguage = 'javascript',
+    allowMemberEdits = true,
   } = req.body || {};
   const normalizedTitle = typeof title === 'string' ? title.trim() : '';
   const normalizedDescription = typeof description === 'string' ? description.trim() : null;
@@ -116,7 +137,8 @@ router.post('/', async (req, res, next) => {
     !Number.isInteger(maxMembers) ||
     maxMembers < 2 ||
     maxMembers > 50 ||
-    !SUPPORTED_LANGUAGES.includes(defaultLanguage)
+    !SUPPORTED_LANGUAGES.includes(defaultLanguage) ||
+    typeof allowMemberEdits !== 'boolean'
   ) {
     return res.status(400).json({
       success: false,
@@ -130,7 +152,7 @@ router.post('/', async (req, res, next) => {
       description: normalizedDescription,
       visibility,
       maxMembers,
-      settings: { defaultLanguage, allowGuests: false },
+      settings: { defaultLanguage, allowGuests: false, allowMemberEdits },
       files: [{
         name: `main.${LANGUAGE_EXTENSIONS[defaultLanguage]}`,
         language: defaultLanguage,
@@ -342,8 +364,9 @@ router.get('/:roomId/access-requests', async (req, res, next) => {
     if (!room) {
       return res.status(404).json({ success: false, message: 'Room not found.' });
     }
-    if (room.owner.toString() !== req.user.id) {
-      return res.status(403).json({ success: false, message: 'Only the room owner can review access requests.' });
+    const populatedRoom = await roomById(room._id);
+    if (!canManageMembers(populatedRoom, req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Only the owner or a moderator can review access requests.' });
     }
 
     return res.json({
@@ -377,11 +400,24 @@ router.patch('/:roomId/access-requests/:requesterId', async (req, res, next) => 
   }
 
   try {
-    const ownerFilter = { _id: roomId, owner: req.user._id };
+    const room = await roomById(roomId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room or request not found.' });
+    }
+    if (!canManageMembers(room, req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Only the owner or a moderator can review access requests.' });
+    }
+    const actorRole = roleFor(room, req.user.id);
+    const managerFilter = room.owner._id
+      ? { _id: roomId, owner: room.owner._id }
+      : { _id: roomId, owner: room.owner };
+    const accessFilter = actorRole === 'moderator'
+      ? { ...managerFilter, [memberRolePath(req.user._id)]: 'moderator' }
+      : managerFilter;
     if (decision === 'approve') {
       const room = await Room.findOneAndUpdate(
         {
-          ...ownerFilter,
+          ...accessFilter,
           'accessRequests': { $elemMatch: { user: requesterId, status: 'pending' } },
           members: { $ne: requesterId },
           $expr: {
@@ -410,7 +446,7 @@ router.patch('/:roomId/access-requests/:requesterId', async (req, res, next) => 
     } else {
       const room = await Room.findOneAndUpdate(
         {
-          ...ownerFilter,
+          ...accessFilter,
           'accessRequests': { $elemMatch: { user: requesterId, status: 'pending' } },
         },
         {
@@ -429,17 +465,17 @@ router.patch('/:roomId/access-requests/:requesterId', async (req, res, next) => 
       }
     }
 
-    const room = await Room.findById(roomId).select('owner members maxMembers accessRequests');
-    if (!room || room.owner.toString() !== req.user.id) {
-      return res.status(room ? 403 : 404).json({
+    const latestRoom = await Room.findById(roomId).select('owner members maxMembers accessRequests');
+    if (!latestRoom || !canManageMembers(await roomById(roomId), req.user.id)) {
+      return res.status(latestRoom ? 403 : 404).json({
         success: false,
-        message: room ? 'Only the room owner can review access requests.' : 'Room or request not found.',
+        message: latestRoom ? 'Only the owner or a moderator can review access requests.' : 'Room or request not found.',
       });
     }
     if (
       decision === 'approve' &&
-      room.accessRequests.some((request) => request.user.toString() === requesterId && request.status === 'pending') &&
-      room.members.length + 1 >= room.maxMembers
+      latestRoom.accessRequests.some((request) => request.user.toString() === requesterId && request.status === 'pending') &&
+      latestRoom.members.length + 1 >= latestRoom.maxMembers
     ) {
       return res.status(409).json({ success: false, message: 'The room is full; increase its capacity before approving this request.' });
     }
@@ -454,7 +490,19 @@ router.patch('/:roomId', async (req, res, next) => {
     return res.status(404).json({ success: false, message: 'Room not found.' });
   }
 
-  const { title, description, visibility, maxMembers, defaultLanguage } = req.body || {};
+  const {
+    title,
+    description,
+    visibility,
+    maxMembers,
+    defaultLanguage,
+    allowMemberEdits,
+  } = req.body || {};
+  const bodyFields = Object.keys(req.body || {});
+  const allowedFields = ['title', 'description', 'visibility', 'maxMembers', 'defaultLanguage', 'allowMemberEdits'];
+  if (bodyFields.some((field) => !allowedFields.includes(field))) {
+    return res.status(400).json({ success: false, message: 'Unsupported room setting.' });
+  }
   const updates = {};
   if (title !== undefined) {
     if (typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 60) {
@@ -486,12 +534,37 @@ router.patch('/:roomId', async (req, res, next) => {
     }
     updates['settings.defaultLanguage'] = defaultLanguage;
   }
+  if (allowMemberEdits !== undefined) {
+    if (typeof allowMemberEdits !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'Member edit permission must be true or false.' });
+    }
+    updates['settings.allowMemberEdits'] = allowMemberEdits;
+  }
   if (!Object.keys(updates).length) {
     return res.status(400).json({ success: false, message: 'Provide at least one room setting to update.' });
   }
 
   try {
-    const filter = { _id: req.params.roomId, owner: req.user._id };
+    const existingRoom = await roomById(req.params.roomId);
+    if (!existingRoom) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    const actorRole = roleFor(existingRoom, req.user.id);
+    if (!['owner', 'moderator'].includes(actorRole)) {
+      return res.status(403).json({ success: false, message: 'Only the owner or a moderator can update room settings.' });
+    }
+    if (
+      actorRole === 'moderator' &&
+      bodyFields.some((field) => !['description', 'defaultLanguage', 'allowMemberEdits'].includes(field))
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Moderators may update the description, default language, and member edit permission only.',
+      });
+    }
+    const filter = actorRole === 'owner'
+      ? { _id: req.params.roomId, owner: req.user._id }
+      : { _id: req.params.roomId, [memberRolePath(req.user._id)]: 'moderator' };
     if (maxMembers !== undefined) {
       filter.$expr = {
         $lte: [
@@ -510,8 +583,8 @@ router.patch('/:roomId', async (req, res, next) => {
       return res.json({ success: true, room: serializeRoom(populated, req.user.id) });
     }
     if (maxMembers !== undefined) {
-      const ownedRoom = await Room.findOne({ _id: req.params.roomId, owner: req.user._id }).select('members');
-      if (ownedRoom && ownedRoom.members.length + 1 > maxMembers) {
+      const currentRoom = await Room.findById(req.params.roomId).select('members owner');
+      if (currentRoom && currentRoom.owner.toString() === req.user.id && currentRoom.members.length + 1 > maxMembers) {
         return res.status(409).json({
           success: false,
           message: 'Capacity cannot be lower than the current number of members.',
@@ -521,7 +594,7 @@ router.patch('/:roomId', async (req, res, next) => {
     const exists = await Room.exists({ _id: req.params.roomId });
     return res.status(exists ? 403 : 404).json({
       success: false,
-      message: exists ? 'Only the room owner can update room settings.' : 'Room not found.',
+      message: exists ? 'Your role does not permit this room setting change.' : 'Room not found.',
     });
   } catch (err) {
     if (err.name === 'ValidationError' || err.name === 'CastError') {
@@ -534,6 +607,226 @@ router.patch('/:roomId', async (req, res, next) => {
   }
 });
 
+router.patch('/:roomId/members/:memberId/role', async (req, res, next) => {
+  const { roomId, memberId: targetId } = req.params;
+  const { role } = req.body || {};
+  if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(targetId)) {
+    return res.status(404).json({ success: false, message: 'Room or member not found.' });
+  }
+  if (!['moderator', 'member'].includes(role)) {
+    return res.status(400).json({ success: false, message: 'Role must be moderator or member.' });
+  }
+
+  try {
+    const room = await Room.findOneAndUpdate(
+      {
+        _id: roomId,
+        owner: req.user._id,
+        members: targetId,
+      },
+      { $set: { [memberRolePath(targetId)]: role } },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (room) {
+      return res.json({ success: true, role, memberId: targetId });
+    }
+    const existing = await Room.findById(roomId).select('owner members');
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    if (existing.owner.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Only the owner can promote or demote moderators.' });
+    }
+    return res.status(404).json({ success: false, message: 'Only room members can be assigned a member role.' });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:roomId/transfer-ownership', async (req, res, next) => {
+  const { roomId } = req.params;
+  const { memberId: targetId } = req.body || {};
+  if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(targetId)) {
+    return res.status(400).json({ success: false, message: 'Choose a valid room member to receive ownership.' });
+  }
+
+  try {
+    const room = await Room.findOne({ _id: roomId, owner: req.user._id }).select('members');
+    if (!room) {
+      const exists = await Room.exists({ _id: roomId });
+      return res.status(exists ? 403 : 404).json({
+        success: false,
+        message: exists ? 'Only the owner can transfer room ownership.' : 'Room not found.',
+      });
+    }
+    if (!room.members.some((member) => member.toString() === targetId)) {
+      return res.status(400).json({ success: false, message: 'Ownership can only be transferred to a current room member.' });
+    }
+
+    const previousOwnerId = req.user._id.toString();
+    const members = room.members
+      .filter((member) => member.toString() !== targetId)
+      .concat(req.user._id);
+    const updated = await Room.findOneAndUpdate(
+      { _id: roomId, owner: req.user._id, members: targetId },
+      {
+        $set: {
+          owner: targetId,
+          members,
+          [memberRolePath(req.user._id)]: 'member',
+        },
+        $unset: { [memberRolePath(targetId)]: '' },
+      },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (!updated) {
+      return res.status(409).json({ success: false, message: 'Room ownership changed before the transfer completed.' });
+    }
+    return res.json({ success: true, ownerId: targetId });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.delete('/:roomId/members/:memberId', async (req, res, next) => {
+  const { roomId, memberId: targetId } = req.params;
+  if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(targetId)) {
+    return res.status(404).json({ success: false, message: 'Room or member not found.' });
+  }
+
+  try {
+    const room = await roomById(roomId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    const actorRole = roleFor(room, req.user.id);
+    const targetRole = roleFor(room, targetId);
+    if (!['owner', 'moderator'].includes(actorRole)) {
+      return res.status(403).json({ success: false, message: 'Only the owner or a moderator can remove members.' });
+    }
+    if (!room.members.some((member) => member._id.toString() === targetId)) {
+      return res.status(404).json({ success: false, message: 'Room member not found.' });
+    }
+    if (actorRole === 'moderator' && targetRole !== 'member') {
+      return res.status(403).json({ success: false, message: 'Moderators can remove members but not other moderators or the owner.' });
+    }
+
+    const filter = {
+      _id: roomId,
+      owner: room.owner._id,
+      members: targetId,
+    };
+    if (actorRole === 'moderator') {
+      filter[memberRolePath(req.user._id)] = 'moderator';
+      filter[memberRolePath(targetId)] = { $nin: ['moderator', 'owner'] };
+    }
+    const updated = await Room.findOneAndUpdate(
+      filter,
+      {
+        $pull: {
+          members: targetId,
+          accessRequests: { user: targetId },
+        },
+        $unset: { [memberRolePath(targetId)]: '' },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated) {
+      return res.status(403).json({ success: false, message: 'Your role does not permit removing this member.' });
+    }
+    return res.json({ success: true, message: 'Member removed.' });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/:roomId/files/:fileId', async (req, res, next) => {
+  const { roomId, fileId } = req.params;
+  const { content } = req.body || {};
+  if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(fileId)) {
+    return res.status(404).json({ success: false, message: 'Room or file not found.' });
+  }
+  if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 100000) {
+    return res.status(400).json({ success: false, message: 'File content must be text no larger than 100 KB.' });
+  }
+
+  try {
+    const room = await roomById(roomId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    const role = roleFor(room, req.user.id);
+    if (role === 'member' && room.settings?.allowMemberEdits === false) {
+      return res.status(403).json({ success: false, message: 'The owner has disabled editing for members.' });
+    }
+    if (!['owner', 'moderator', 'member'].includes(role)) {
+      return res.status(403).json({ success: false, message: 'Room access is required to edit files.' });
+    }
+
+    const filter = {
+      _id: roomId,
+      files: { $elemMatch: { _id: fileId } },
+      ...(role === 'owner'
+        ? { owner: req.user._id }
+        : { owner: room.owner._id, members: req.user._id }),
+    };
+    if (role === 'moderator') filter[memberRolePath(req.user._id)] = 'moderator';
+    if (role === 'member') {
+      filter['settings.allowMemberEdits'] = { $ne: false };
+      filter[memberRolePath(req.user._id)] = { $ne: 'moderator' };
+    }
+    const updated = await Room.findOneAndUpdate(
+      filter,
+      { $set: { 'files.$.content': content } },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (!updated) {
+      const isMember = room.members.some((member) => member._id.toString() === req.user.id);
+      if (!isMember && role !== 'owner') {
+        return res.status(403).json({ success: false, message: 'Join the room before editing files.' });
+      }
+      if (role === 'member' && room.settings?.allowMemberEdits === false) {
+        return res.status(403).json({ success: false, message: 'The owner has disabled editing for members.' });
+      }
+      return res.status(404).json({ success: false, message: 'File not found.' });
+    }
+    const file = updated.files.id(fileId);
+    return res.json({
+      success: true,
+      file: { id: file.id, name: file.name, language: file.language, content: file.content, updatedAt: file.updatedAt },
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:roomId/download', async (req, res, next) => {
+  if (!mongoose.isObjectIdOrHexString(req.params.roomId)) {
+    return res.status(404).json({ success: false, message: 'Room not found.' });
+  }
+  try {
+    const room = await roomById(req.params.roomId);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    const isMember = room.members.some((member) => member._id.toString() === req.user.id);
+    if (room.owner._id.toString() !== req.user.id && !isMember) {
+      return res.status(403).json({ success: false, message: 'Only room members can download the workspace.' });
+    }
+    const workspace = {
+      title: room.title,
+      description: room.description,
+      defaultLanguage: room.settings?.defaultLanguage || 'javascript',
+      files: room.files.map((file) => ({ name: file.name, language: file.language, content: file.content })),
+    };
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${room.id}-workspace.json"`);
+    return res.send(JSON.stringify(workspace, null, 2));
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post('/:roomId/leave', async (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.roomId)) {
     return res.status(404).json({ success: false, message: 'Room not found.' });
@@ -542,7 +835,10 @@ router.post('/:roomId/leave', async (req, res, next) => {
     const room = await Room.findOneAndUpdate(
       { _id: req.params.roomId, owner: { $ne: req.user._id }, members: req.user._id },
       {
-        $pull: { members: req.user._id },
+        $pull: {
+          members: req.user._id,
+          accessRequests: { user: req.user._id },
+        },
         $unset: { [`memberRoles.${req.user.id}`]: '' },
       },
       { returnDocument: 'after' },
