@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useRoomPresence } from './hooks/useRoomPresence';
 import {
   BrowserRouter,
   Link,
@@ -718,6 +719,9 @@ function RoomPage({ currentUser }) {
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [busyAction, setBusyAction] = useState('');
+  const canJoinLivePresence = Boolean(room?.isOwner || room?.isMember);
+  const presence = useRoomPresence(roomId, canJoinLivePresence);
+  const onlineUserIds = new Set(presence.users.map((user) => user.id));
 
   async function loadRoom() {
     const result = await requestRooms(`/${roomId}`);
@@ -1064,13 +1068,49 @@ function RoomPage({ currentUser }) {
               </section>
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                <p className="text-xs font-medium uppercase tracking-[0.15em] text-slate-500">People</p>
-                <h2 className="mt-1 text-lg font-semibold text-white">Members</h2>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.15em] text-slate-500">People</p>
+                    <h2 className="mt-1 text-lg font-semibold text-white">Members</h2>
+                  </div>
+                  {canJoinLivePresence && (
+                    <span className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs ${
+                      presence.status === 'online'
+                        ? 'bg-emerald-400/10 text-emerald-300'
+                        : presence.status === 'error'
+                          ? 'bg-rose-400/10 text-rose-300'
+                          : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        presence.status === 'online' ? 'bg-emerald-400' : presence.status === 'error' ? 'bg-rose-400' : 'bg-slate-500'
+                      }`} />
+                      {presence.status === 'online'
+                        ? `${presence.users.length} online`
+                        : presence.status === 'error'
+                          ? 'Presence unavailable'
+                          : 'Connecting'}
+                    </span>
+                  )}
+                </div>
+                {presence.status === 'error' && canJoinLivePresence && (
+                  <p className="mt-2 text-xs text-rose-300" role="status">{presence.error}</p>
+                )}
                 <ul className="mt-4 space-y-2">
                   {room.members?.map((member) => (
                     <li className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5" key={member.id}>
                       <span className="flex min-w-0 items-center gap-3">
-                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-400/10 text-xs font-semibold uppercase text-brand-200">{member.username.slice(0, 2)}</span>
+                        <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-400/10 text-xs font-semibold uppercase text-brand-200">
+                          {member.username.slice(0, 2)}
+                          {canJoinLivePresence && (
+                            <span
+                              aria-label={onlineUserIds.has(member.id) ? 'Online' : 'Offline'}
+                              className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-slate-950 ${
+                                onlineUserIds.has(member.id) ? 'bg-emerald-400' : 'bg-slate-600'
+                              }`}
+                              title={onlineUserIds.has(member.id) ? 'Online' : 'Offline'}
+                            />
+                          )}
+                        </span>
                         <span className="truncate text-sm text-slate-200">{member.username}{member.id === currentUser.id ? ' (you)' : ''}</span>
                       </span>
                       <span className="ml-2 shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-400">{member.role}</span>

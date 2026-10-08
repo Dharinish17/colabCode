@@ -8,8 +8,7 @@ const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
-const User = require('./models/User');
-const { verifyToken } = require('./middleware/auth');
+const configureSocket = require('./socket');
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
@@ -35,6 +34,7 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+configureSocket(io, { cookieName: COOKIE_NAME, jwtSecret, issuer: JWT_ISSUER });
 
 app.use(
   cors({
@@ -80,49 +80,6 @@ app.use((err, req, res, next) => {
 
   console.error('Request failed:', err);
   return res.status(500).json({ success: false, message: 'An unexpected server error occurred.' });
-});
-
-io.use(async (socket, next) => {
-  const cookieHeader = socket.handshake.headers.cookie || '';
-  const cookies = cookieHeader.split(';').reduce((parsed, part) => {
-    const separator = part.indexOf('=');
-    if (separator > -1) {
-      try {
-        parsed[part.slice(0, separator).trim()] = decodeURIComponent(part.slice(separator + 1).trim());
-      } catch {
-        parsed[part.slice(0, separator).trim()] = '';
-      }
-    }
-    return parsed;
-  }, {});
-  const token = cookies[COOKIE_NAME];
-
-  if (!token) {
-    return next(new Error('Authentication required.'));
-  }
-
-  let payload;
-  try {
-    payload = verifyToken(token, jwtSecret, JWT_ISSUER);
-  } catch {
-    return next(new Error('Authentication required.'));
-  }
-
-  try {
-    const user = await User.findById(payload.sub).select('_id username email');
-    if (!user) {
-      return next(new Error('Authentication required.'));
-    }
-
-    socket.data.user = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-    };
-    return next();
-  } catch (err) {
-    return next(err);
-  }
 });
 
 async function start() {
