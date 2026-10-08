@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { EDITOR_LANGUAGES } from './constants/editorLanguages';
 import { useCollaborativeEditor } from './hooks/useCollaborativeEditor';
 import { useRoomPresence } from './hooks/useRoomPresence';
+import { SOCKET_EVENTS } from './socket/events';
 import {
   BrowserRouter,
   Link,
@@ -699,6 +700,7 @@ function RoomPage({ currentUser }) {
   const [room, setRoom] = useState(null);
   const [accessRequests, setAccessRequests] = useState([]);
   const [activeFileId, setActiveFileId] = useState('');
+  const [fileDialog, setFileDialog] = useState(null);
   const [settingsForm, setSettingsForm] = useState({
     title: '',
     description: '',
@@ -714,6 +716,22 @@ function RoomPage({ currentUser }) {
   const canJoinLivePresence = Boolean(room?.isOwner || room?.isMember);
   const presence = useRoomPresence(roomId, canJoinLivePresence);
   const onlineUserIds = new Set(presence.users.map((user) => user.id));
+  useEffect(() => {
+    const socket = presence.socket;
+    if (!socket) return undefined;
+
+    const handleFilesUpdate = (payload) => {
+      if (payload.roomId !== roomId) return;
+      setRoom((current) => current && ({ ...current, files: payload.files }));
+      setActiveFileId((current) =>
+        payload.files.some((file) => file.id === current)
+          ? current
+          : payload.files[0]?.id || '',
+      );
+    };
+    socket.on(SOCKET_EVENTS.FILES_UPDATE, handleFilesUpdate);
+    return () => socket.off(SOCKET_EVENTS.FILES_UPDATE, handleFilesUpdate);
+  }, [presence.socket, roomId]);
   useEffect(() => {
     if (['ROOM_ACCESS_REVOKED', 'ROOM_DELETED'].includes(presence.errorCode)) {
       navigate('/workspace', { replace: true });
@@ -769,6 +787,8 @@ function RoomPage({ currentUser }) {
   useEffect(() => {
     let active = true;
     setRoom(null);
+    setActiveFileId('');
+    setFileDialog(null);
     setError('');
     setActionMessage('');
     setLoading(true);
@@ -925,6 +945,55 @@ function RoomPage({ currentUser }) {
     });
   }
 
+  function showFileDialog(mode, file = null) {
+    const language = file?.language || room.settings?.defaultLanguage || 'javascript';
+    const languageDefinition = EDITOR_LANGUAGES.find((item) => item.id === language) || EDITOR_LANGUAGES[0];
+    setFileDialog({
+      mode,
+      fileId: file?.id || '',
+      language,
+      name: file?.name || `new-file.${languageDefinition.extension}`,
+    });
+    setError('');
+  }
+
+  function handleFileSubmit(event) {
+    event.preventDefault();
+    if (!fileDialog) return;
+    performAction(`file-${fileDialog.mode}`, async () => {
+      const isRename = fileDialog.mode === 'rename';
+      const result = await requestRooms(
+        `/${roomId}/files${isRename ? `/${fileDialog.fileId}` : ''}`,
+        {
+          method: isRename ? 'PATCH' : 'POST',
+          body: { name: fileDialog.name, language: fileDialog.language },
+        },
+      );
+      setRoom(result.room);
+      if (!isRename && (!activeFileId || collaborativeEditor.syncStatus === 'saved')) {
+        setActiveFileId(result.file.id);
+      }
+      setFileDialog(null);
+      return isRename ? 'File renamed.' : 'File created.';
+    });
+  }
+
+  function handleFileDelete(file) {
+    if (file.id === activeFileId && collaborativeEditor.syncStatus !== 'saved') {
+      setError('Save the active file before deleting it.');
+      return;
+    }
+    if (!window.confirm(`Delete ${file.name}? This cannot be undone.`)) return;
+    performAction('file-delete', async () => {
+      const result = await requestRooms(`/${roomId}/files/${file.id}`, { method: 'DELETE' });
+      setRoom(result.room);
+      if (file.id === activeFileId) {
+        setActiveFileId(result.room.files[0]?.id || '');
+      }
+      return 'File deleted.';
+    });
+  }
+
   function updateSettings(event) {
     setSettingsForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
@@ -1031,6 +1100,114 @@ function RoomPage({ currentUser }) {
                             : collaborativeEditor.syncStatus === 'error' ? 'Sync failed'
                               : 'Unsaved changes'}
                   </span>
+                </div>
+                <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-medium text-slate-200">File explorer</h3>
+                    {(room.isOwner || room.currentRole === 'moderator') && (
+                      <button
+                        className="rounded-md border border-brand-400/30 px-2.5 py-1.5 text-xs font-medium text-brand-200 hover:bg-brand-400/10 disabled:opacity-50"
+                        disabled={Boolean(busyAction)}
+                        onClick={() => showFileDialog('create')}
+                        type="button"
+                      >
+                        New file
+                      </button>
+                    )}
+                  </div>
+                  {fileDialog && (
+                    <form className="mt-3 flex flex-wrap items-end gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3" onSubmit={handleFileSubmit}>
+                      <label className="min-w-48 flex-1 text-xs text-slate-400">
+                        File name
+                        <input
+                          autoFocus
+                          className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-400/60"
+                          maxLength={100}
+                          onChange={(event) => setFileDialog((current) => ({ ...current, name: event.target.value }))}
+                          required
+                          value={fileDialog.name}
+                        />
+                      </label>
+                      <label className="text-xs text-slate-400">
+                        Language
+                        <select
+                          className="mt-1 block rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+                          onChange={(event) => {
+                            const language = EDITOR_LANGUAGES.find((item) => item.id === event.target.value);
+                            setFileDialog((current) => {
+                              const extensionIndex = current.name.lastIndexOf('.');
+                              const baseName = extensionIndex > 0
+                                ? current.name.slice(0, extensionIndex)
+                                : current.name;
+                              return {
+                                ...current,
+                                language: language.id,
+                                name: `${baseName}.${language.extension}`,
+                              };
+                            });
+                          }}
+                          value={fileDialog.language}
+                        >
+                          {EDITOR_LANGUAGES.map((language) => (
+                            <option key={language.id} value={language.id}>{language.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="flex gap-2">
+                        <button className="rounded-md bg-brand-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-brand-300 disabled:opacity-50" disabled={Boolean(busyAction)} type="submit">
+                          {busyAction === `file-${fileDialog.mode}` ? 'Saving…' : fileDialog.mode === 'rename' ? 'Rename' : 'Create'}
+                        </button>
+                        <button className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:text-white" onClick={() => setFileDialog(null)} type="button">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                  {room.files?.length ? (
+                    <ul className="mt-3 space-y-1">
+                      {room.files.map((file) => {
+                        const isFileManager = room.isOwner || room.currentRole === 'moderator';
+                        const activeFileIsDirty = file.id === activeFileId && collaborativeEditor.syncStatus !== 'saved';
+                        return (
+                          <li className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-900" key={`explorer-${file.id}`}>
+                            <button
+                              aria-current={activeFileId === file.id ? 'page' : undefined}
+                              className="min-w-0 flex-1 truncate text-left font-mono text-xs text-slate-300 hover:text-white disabled:opacity-50"
+                              disabled={activeFileId !== file.id && collaborativeEditor.syncStatus !== 'saved'}
+                              onClick={() => setActiveFileId(file.id)}
+                              type="button"
+                            >
+                              {file.name}
+                            </button>
+                            {isFileManager && (
+                              <div className="flex shrink-0 gap-1">
+                                <button
+                                  aria-label={`Rename ${file.name}`}
+                                  className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-40"
+                                  disabled={Boolean(busyAction) || activeFileIsDirty}
+                                  onClick={() => showFileDialog('rename', file)}
+                                  type="button"
+                                >
+                                  Rename
+                                </button>
+                                <button
+                                  aria-label={`Delete ${file.name}`}
+                                  className="rounded px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"
+                                  disabled={Boolean(busyAction) || activeFileIsDirty}
+                                  onClick={() => handleFileDelete(file)}
+                                  type="button"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 px-2 py-3 text-xs text-slate-500">No files yet. Create one to start coding.</p>
+                  )}
                 </div>
                 {room.files?.length ? (
                   <div aria-label="Open files" className="mt-5 flex overflow-x-auto border-b border-slate-800" role="tablist">

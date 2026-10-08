@@ -4,8 +4,14 @@ const Room = require('../models/Room');
 const User = require('../models/User');
 const { LANGUAGE_EXTENSIONS, SUPPORTED_LANGUAGES } = require('../constants/languages');
 const { requireAuth } = require('../middleware/auth');
-const { updateRoomFile } = require('../services/roomFiles');
-const { disconnectRoom, disconnectRoomUser } = require('../socket/access');
+const {
+  createRoomFile,
+  deleteRoomFile,
+  renameRoomFile,
+  updateRoomFile,
+} = require('../services/roomFiles');
+const { disconnectRoom, disconnectRoomUser, emitRoomEvent } = require('../socket/access');
+const SOCKET_EVENTS = require('../socket/events');
 
 const router = express.Router();
 
@@ -88,6 +94,72 @@ function canManageMembers(room, userId) {
 
 function memberRolePath(userId) {
   return `memberRoles.${userId.toString()}`;
+}
+
+function validateFileInput(body) {
+  const { name, language } = body || {};
+  if (
+    typeof name !== 'string' ||
+    typeof language !== 'string' ||
+    !SUPPORTED_LANGUAGES.includes(language)
+  ) {
+    return { error: 'Provide a file name and a supported language.' };
+  }
+
+  const normalizedName = name.trim();
+  if (
+    normalizedName.length > 100 ||
+    !normalizedName ||
+    normalizedName === '.' ||
+    normalizedName === '..' ||
+    /[<>:"|?*/\\\u0000-\u001F\u007F]/.test(normalizedName)
+  ) {
+    return { error: 'File names must be 1–100 characters and cannot contain path separators or reserved characters.' };
+  }
+
+  const extension = LANGUAGE_EXTENSIONS[language];
+  if (
+    !normalizedName.toLowerCase().endsWith(`.${extension.toLowerCase()}`) ||
+    normalizedName.length <= extension.length + 1
+  ) {
+    return { error: `Choose a file name ending in .${extension} for ${language}.` };
+  }
+  return { name: normalizedName, language };
+}
+
+async function sendFileOperationResult(req, res, roomId, result, action) {
+  if (result.status !== 'updated') {
+    const status = {
+      'not-found': 404,
+      forbidden: 403,
+      duplicate: 409,
+      conflict: 409,
+    }[result.status] || 500;
+    const message = {
+      'not-found': 'Room or file not found.',
+      forbidden: 'Only the room owner or a moderator can manage files.',
+      duplicate: 'A file with that name already exists.',
+      conflict: 'The file changed before this operation completed. Please try again.',
+    }[result.status] || 'Unable to update the room files.';
+    return res.status(status).json({ success: false, message });
+  }
+
+  const populated = await roomById(roomId);
+  if (!populated) {
+    return res.status(404).json({ success: false, message: 'Room not found.' });
+  }
+  const room = serializeRoom(populated, req.user.id);
+  await emitRoomEvent(req.app.get('io'), roomId, SOCKET_EVENTS.FILES_UPDATE, {
+    roomId,
+    files: room.files,
+    action,
+    actor: { id: req.user.id, username: req.user.username },
+  });
+  return res.json({
+    success: true,
+    room,
+    ...(result.file ? { file: result.file } : {}),
+  });
 }
 
 function roomQuery() {
@@ -891,6 +963,79 @@ router.get('/:roomId', async (req, res, next) => {
 
     return res.json({ success: true, room: serializeRoom(access.room, req.user.id) });
   } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:roomId/files', async (req, res, next) => {
+  if (!mongoose.isObjectIdOrHexString(req.params.roomId)) {
+    return res.status(404).json({ success: false, message: 'Room not found.' });
+  }
+  if (Object.keys(req.body || {}).some((field) => !['name', 'language'].includes(field))) {
+    return res.status(400).json({ success: false, message: 'Unsupported file property.' });
+  }
+  const file = validateFileInput(req.body);
+  if (file.error) return res.status(400).json({ success: false, message: file.error });
+
+  try {
+    const result = await createRoomFile({
+      roomId: req.params.roomId,
+      userId: req.user._id,
+      ...file,
+    });
+    return sendFileOperationResult(req, res, req.params.roomId, result, 'created');
+  } catch (err) {
+    if (err.name === 'ValidationError' || err.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'The file details are invalid.' });
+    }
+    return next(err);
+  }
+});
+
+router.patch('/:roomId/files/:fileId', async (req, res, next) => {
+  const { roomId, fileId } = req.params;
+  if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(fileId)) {
+    return res.status(404).json({ success: false, message: 'Room or file not found.' });
+  }
+  if (Object.keys(req.body || {}).some((field) => !['name', 'language'].includes(field))) {
+    return res.status(400).json({ success: false, message: 'Unsupported file property.' });
+  }
+  const file = validateFileInput(req.body);
+  if (file.error) return res.status(400).json({ success: false, message: file.error });
+
+  try {
+    const result = await renameRoomFile({
+      roomId,
+      fileId,
+      userId: req.user._id,
+      ...file,
+    });
+    return sendFileOperationResult(req, res, roomId, result, 'renamed');
+  } catch (err) {
+    if (err.name === 'ValidationError' || err.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'The file details are invalid.' });
+    }
+    return next(err);
+  }
+});
+
+router.delete('/:roomId/files/:fileId', async (req, res, next) => {
+  const { roomId, fileId } = req.params;
+  if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(fileId)) {
+    return res.status(404).json({ success: false, message: 'Room or file not found.' });
+  }
+
+  try {
+    const result = await deleteRoomFile({
+      roomId,
+      fileId,
+      userId: req.user._id,
+    });
+    return sendFileOperationResult(req, res, roomId, result, 'deleted');
+  } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'The file ID is invalid.' });
+    }
     return next(err);
   }
 });

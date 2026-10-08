@@ -3,7 +3,7 @@ const Room = require('../models/Room');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
 const { fileVersion, updateRoomFile } = require('../services/roomFiles');
-const { roomChannel } = require('./access');
+const { emitRoomEvent, roomChannel } = require('./access');
 const EVENTS = require('./events');
 
 function parseCookies(header) {
@@ -36,28 +36,6 @@ function acknowledge(socket, callback, response) {
 
 function configureSocket(io, { cookieName, jwtSecret, issuer }) {
   const presenceByRoom = new Map();
-
-  async function emitToRoomMembers(roomId, excludedSocketId, event, payload) {
-    const room = await Room.findById(roomId).select('_id owner members').lean();
-    if (!room) return;
-    const memberIds = new Set([
-      room.owner.toString(),
-      ...(room.members || []).map((member) => member.toString()),
-    ]);
-    const sockets = await io.in(roomChannel(roomId)).fetchSockets();
-    await Promise.all(sockets.map(async (recipient) => {
-      const userId = recipient.data.user?.id;
-      if (!memberIds.has(userId)) {
-        recipient.emit(EVENTS.ROOM_ERROR, {
-          code: 'ROOM_ACCESS_REVOKED',
-          message: 'Your access to this room has changed.',
-        });
-        await recipient.disconnect(true);
-      } else if (recipient.id !== excludedSocketId) {
-        recipient.emit(event, payload);
-      }
-    }));
-  }
 
   io.use(async (socket, next) => {
     const token = parseCookies(socket.handshake.headers.cookie || '')[cookieName];
@@ -258,7 +236,7 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
           actor: socket.data.user,
           clientChangeId,
         };
-        await emitToRoomMembers(roomId, socket.id, EVENTS.EDITOR_UPDATE, update);
+        await emitRoomEvent(io, roomId, EVENTS.EDITOR_UPDATE, update, socket.id);
         return acknowledge(socket, callback, { success: true, ...update });
       } catch (error) {
         console.error('Socket editor update failed:', error);

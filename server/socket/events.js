@@ -6,6 +6,7 @@ module.exports = Object.freeze({
   EDITOR_CHANGE: 'editor:change',
   EDITOR_UPDATE: 'editor:update',
   EDITOR_CONFLICT: 'editor:conflict',
+  FILES_UPDATE: 'files:update',
   PRESENCE_SNAPSHOT: 'presence:snapshot',
   PRESENCE_USER_ONLINE: 'presence:user-online',
   PRESENCE_USER_OFFLINE: 'presence:user-offline',
