@@ -11,6 +11,17 @@ import {
 } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const ROOM_LANGUAGES = [
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
+  { value: 'python', label: 'Python' },
+  { value: 'java', label: 'Java' },
+  { value: 'c', label: 'C' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+];
 
 async function requestAuth(endpoint, body) {
   const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
@@ -448,9 +459,9 @@ function CreateRoomDialog({ onClose, onCreated }) {
               onChange={updateField}
               value={form.defaultLanguage}
             >
-              <option value="javascript">JavaScript</option>
-              <option value="typescript">TypeScript</option>
-              <option value="python">Python</option>
+              {ROOM_LANGUAGES.map((language) => (
+                <option key={language.value} value={language.value}>{language.label}</option>
+              ))}
             </select>
           </label>
           <p className="text-xs text-slate-500">Guest access is disabled; participants must sign in.</p>
@@ -990,9 +1001,9 @@ function RoomPage({ currentUser }) {
                       </label>
                       <label className="block space-y-1.5 text-sm text-slate-300">Default language
                         <select className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none focus:border-brand-400" name="defaultLanguage" onChange={updateSettings} value={settingsForm.defaultLanguage}>
-                          <option value="javascript">JavaScript</option>
-                          <option value="typescript">TypeScript</option>
-                          <option value="python">Python</option>
+                          {ROOM_LANGUAGES.map((language) => (
+                            <option key={language.value} value={language.value}>{language.label}</option>
+                          ))}
                         </select>
                       </label>
                     </div>

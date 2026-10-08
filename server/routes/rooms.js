@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Room = require('../models/Room');
 const User = require('../models/User');
+const { LANGUAGE_EXTENSIONS, SUPPORTED_LANGUAGES } = require('../constants/languages');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -115,7 +116,7 @@ router.post('/', async (req, res, next) => {
     !Number.isInteger(maxMembers) ||
     maxMembers < 2 ||
     maxMembers > 50 ||
-    !['javascript', 'typescript', 'python'].includes(defaultLanguage)
+    !SUPPORTED_LANGUAGES.includes(defaultLanguage)
   ) {
     return res.status(400).json({
       success: false,
@@ -130,7 +131,11 @@ router.post('/', async (req, res, next) => {
       visibility,
       maxMembers,
       settings: { defaultLanguage, allowGuests: false },
-      files: [{ name: `main.${defaultLanguage === 'python' ? 'py' : defaultLanguage === 'typescript' ? 'ts' : 'js'}`, language: defaultLanguage, content: '' }],
+      files: [{
+        name: `main.${LANGUAGE_EXTENSIONS[defaultLanguage]}`,
+        language: defaultLanguage,
+        content: '',
+      }],
       owner: req.user._id,
     });
     const populated = await roomById(room._id);
@@ -476,7 +481,7 @@ router.patch('/:roomId', async (req, res, next) => {
     updates.maxMembers = maxMembers;
   }
   if (defaultLanguage !== undefined) {
-    if (!['javascript', 'typescript', 'python'].includes(defaultLanguage)) {
+    if (!SUPPORTED_LANGUAGES.includes(defaultLanguage)) {
       return res.status(400).json({ success: false, message: 'Choose a supported default language.' });
     }
     updates['settings.defaultLanguage'] = defaultLanguage;

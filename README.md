@@ -15,7 +15,7 @@ The `/workspace` frontend route and Socket.IO connections require a valid sessio
 
 ## Dashboard and rooms
 
-The authenticated dashboard at `/workspace` shows rooms you own or have joined, lets you search public rooms, and supports creating public or private rooms. Room pages are available at `/rooms/:roomId`. Rooms persist their owner, members and member roles, file metadata, language/capacity settings, visibility, and timestamps. Guest access is disabled; participants must authenticate.
+The authenticated dashboard at `/workspace` shows rooms you own or have joined, lets you search public rooms, and supports creating public or private rooms. Rooms can use JavaScript, TypeScript, Python, Java, C, C++, C#, Go, or Rust as their default language. Room pages are available at `/rooms/:roomId`. Rooms persist their owner, members and member roles, file metadata, language/capacity settings, visibility, and timestamps. Guest access is disabled; participants must authenticate.
 
 Public rooms can be joined by signed-in users. Visitors to a private room can request access; the owner can approve or reject requests. Owners can update room settings or delete their rooms, while members can leave. These actions are enforced by the backend, not only hidden in the UI.
 

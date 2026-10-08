@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { SUPPORTED_LANGUAGES } = require('../constants/languages');
 
 const roomFileSchema = new mongoose.Schema(
   {
@@ -11,7 +12,7 @@ const roomFileSchema = new mongoose.Schema(
     language: {
       type: String,
       required: true,
-      enum: ['javascript', 'typescript', 'python'],
+      enum: SUPPORTED_LANGUAGES,
       default: 'javascript',
     },
     content: {
@@ -97,7 +98,7 @@ const roomSchema = new mongoose.Schema(
     settings: {
       defaultLanguage: {
         type: String,
-        enum: ['javascript', 'typescript', 'python'],
+        enum: SUPPORTED_LANGUAGES,
         default: 'javascript',
       },
       allowGuests: {
