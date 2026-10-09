@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const { randomUUID } = require('crypto');
+const JSZip = require('jszip');
 const Room = require('../models/Room');
 const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
@@ -1112,15 +1113,53 @@ router.get('/:roomId/download', async (req, res, next) => {
     if (room.owner._id.toString() !== req.user.id && !isMember) {
       return res.status(403).json({ success: false, message: 'Only room members can download the workspace.' });
     }
-    const workspace = {
-      title: room.title,
-      description: room.description,
-      defaultLanguage: room.settings?.defaultLanguage || 'javascript',
-      files: room.files.map((file) => ({ name: file.name, language: file.language, content: file.content })),
-    };
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${room.id}-workspace.json"`);
-    return res.send(JSON.stringify(workspace, null, 2));
+    const archive = new JSZip();
+    const archiveNames = new Set();
+    const files = room.files.map((file) => {
+      const name = file.name.trim();
+      const normalizedName = name.replace(/\\/g, '/');
+      if (
+        !name ||
+        normalizedName !== name ||
+        normalizedName === '.' ||
+        normalizedName === '..' ||
+        normalizedName.includes('/') ||
+        /[\u0000-\u001F\u007F]/.test(name) ||
+        archiveNames.has(name.toLowerCase())
+      ) {
+        return null;
+      }
+      archiveNames.add(name.toLowerCase());
+      return { name, content: file.content };
+    });
+    if (files.some((file) => file === null)) {
+      return res.status(409).json({
+        success: false,
+        message: 'The workspace contains invalid or duplicate file names and cannot be exported safely.',
+      });
+    }
+
+    for (const file of files) {
+      archive.file(file.name, file.content);
+    }
+    if (!archiveNames.has('readme.md')) {
+      const fileList = files.length ? files.map((file) => `- \`${file.name}\``).join('\n') : '- No files yet.';
+      const description = room.description ? `\n\n${room.description}\n` : '';
+      archive.file(
+        'README.md',
+        `# ${room.title}\n${description}\nWorkspace export\n\nFiles:\n${fileList}\n`,
+      );
+    }
+
+    const zip = await archive.generateAsync({
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${room.id}-workspace.zip"`);
+    res.setHeader('Content-Length', zip.length);
+    return res.send(zip);
   } catch (err) {
     return next(err);
   }

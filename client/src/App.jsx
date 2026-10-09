@@ -1155,6 +1155,35 @@ function RoomPage({ currentUser }) {
     });
   }
 
+  async function handleWorkspaceDownload() {
+    setBusyAction('download');
+    setError('');
+    setActionMessage('');
+    try {
+      const response = await fetch(`${API_URL}/api/rooms/${roomId}/download`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.message || 'Unable to download the workspace.');
+      }
+      const archive = await response.blob();
+      const objectUrl = URL.createObjectURL(archive);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `${roomId}-workspace.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setActionMessage('Workspace ZIP downloaded.');
+    } catch (downloadError) {
+      setError(downloadError.message || 'Unable to download the workspace.');
+    } finally {
+      setBusyAction('');
+    }
+  }
+
   function showFileDialog(mode, file = null) {
     const language = file?.language || room.settings?.defaultLanguage || 'javascript';
     const languageDefinition = EDITOR_LANGUAGES.find((item) => item.id === language) || EDITOR_LANGUAGES[0];
@@ -1601,9 +1630,14 @@ function RoomPage({ currentUser }) {
                     )}
                   </>
                 )}
-                <a className="mt-4 inline-flex text-xs font-medium text-brand-300 hover:text-brand-200" href={`${API_URL}/api/rooms/${roomId}/download`} rel="noreferrer">
-                  Download workspace
-                </a>
+                <button
+                  className="mt-4 inline-flex text-xs font-medium text-brand-300 hover:text-brand-200 disabled:cursor-wait disabled:opacity-50"
+                  disabled={Boolean(busyAction)}
+                  onClick={handleWorkspaceDownload}
+                  type="button"
+                >
+                  {busyAction === 'download' ? 'Preparing ZIP…' : 'Download workspace ZIP'}
+                </button>
                 <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code runs in Wandbox’s isolated sandbox.</p>
               </section>
 
