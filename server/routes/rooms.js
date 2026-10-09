@@ -1,10 +1,12 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const { randomUUID } = require('crypto');
 const Room = require('../models/Room');
 const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
 const { LANGUAGE_EXTENSIONS, SUPPORTED_LANGUAGES } = require('../constants/languages');
 const { requireAuth } = require('../middleware/auth');
+const { executeCode, MAX_CODE_BYTES } = require('../services/codeExecution');
 const {
   createRoomFile,
   deleteRoomFile,
@@ -15,6 +17,7 @@ const { disconnectRoom, disconnectRoomUser, emitRoomEvent } = require('../socket
 const SOCKET_EVENTS = require('../socket/events');
 
 const router = express.Router();
+const executionRequestsByUser = new Map();
 
 router.use(requireAuth);
 
@@ -95,6 +98,26 @@ function canManageMembers(room, userId) {
 
 function memberRolePath(userId) {
   return `memberRoles.${userId.toString()}`;
+}
+
+function checkExecutionRateLimit(userId) {
+  const now = Date.now();
+  if (executionRequestsByUser.size > 5000) {
+    for (const [id, timestamps] of executionRequestsByUser) {
+      if (timestamps.every((timestamp) => now - timestamp >= 60000)) {
+        executionRequestsByUser.delete(id);
+      }
+    }
+  }
+  const recent = (executionRequestsByUser.get(userId) || [])
+    .filter((timestamp) => now - timestamp < 60000);
+  if (recent.length >= 5) {
+    executionRequestsByUser.set(userId, recent);
+    return false;
+  }
+  recent.push(now);
+  executionRequestsByUser.set(userId, recent);
+  return true;
 }
 
 function validateFileInput(body) {
@@ -906,6 +929,91 @@ router.put('/:roomId/files/:fileId', async (req, res, next) => {
     return next(err);
   }
 });
+
+router.post(
+  '/:roomId/files/:fileId/run',
+  express.text({ type: 'text/plain', limit: MAX_CODE_BYTES }),
+  async (req, res, next) => {
+    const { roomId, fileId } = req.params;
+    if (!mongoose.isObjectIdOrHexString(roomId) || !mongoose.isObjectIdOrHexString(fileId)) {
+      return res.status(404).json({ success: false, message: 'Room or file not found.' });
+    }
+    if (
+      typeof req.body !== 'string' ||
+      Buffer.byteLength(req.body, 'utf8') > MAX_CODE_BYTES
+    ) {
+      return res.status(400).json({ success: false, message: 'Code must be text no larger than 100 KB.' });
+    }
+
+    try {
+      const room = await Room.findOne({
+        _id: roomId,
+        $or: [{ owner: req.user._id }, { members: req.user._id }],
+      })
+        .select('owner members memberRoles settings.allowMemberEdits files')
+        .lean();
+      if (!room) {
+        const exists = await Room.exists({ _id: roomId });
+        return res.status(exists ? 403 : 404).json({
+          success: false,
+          message: exists
+            ? 'Room membership is required to run code.'
+            : 'Room not found.',
+        });
+      }
+
+      const role = roleFor(room, req.user.id);
+      if (!role) {
+        return res.status(403).json({ success: false, message: 'Room membership is required to run code.' });
+      }
+      if (role === 'member' && room.settings?.allowMemberEdits === false) {
+        return res.status(403).json({ success: false, message: 'The owner has disabled code execution for members.' });
+      }
+      const file = room.files.find((item) => item._id.toString() === fileId);
+      if (!file) {
+        return res.status(404).json({ success: false, message: 'Room file not found.' });
+      }
+      if (!checkExecutionRateLimit(req.user.id)) {
+        return res.status(429).json({ success: false, message: 'You can run code up to five times per minute.' });
+      }
+
+      const result = await executeCode({ code: req.body, language: file.language });
+      const currentRoom = await Room.findOne({
+        _id: roomId,
+        $or: [{ owner: req.user._id }, { members: req.user._id }],
+      })
+        .select('owner members memberRoles settings.allowMemberEdits files._id')
+        .lean();
+      if (!currentRoom) {
+        return res.status(403).json({ success: false, message: 'Room membership is required to receive execution results.' });
+      }
+      if (!currentRoom.files.some((item) => item._id.toString() === fileId)) {
+        return res.status(404).json({ success: false, message: 'Room file was removed before execution completed.' });
+      }
+      const currentRole = roleFor(currentRoom, req.user.id);
+      if (!currentRole || (currentRole === 'member' && currentRoom.settings?.allowMemberEdits === false)) {
+        return res.status(403).json({ success: false, message: 'Your room permissions changed before execution completed.' });
+      }
+      const execution = {
+        executionId: randomUUID(),
+        roomId,
+        fileId,
+        fileName: file.name,
+        language: file.language,
+        actor: { id: req.user.id, username: req.user.username },
+        ...result,
+        createdAt: new Date().toISOString(),
+      };
+      await emitRoomEvent(req.app.get('io'), roomId, SOCKET_EVENTS.EXECUTION_RESULT, execution);
+      return res.json({ success: true, execution });
+    } catch (err) {
+      if (Number.isInteger(err.status)) {
+        return res.status(err.status).json({ success: false, message: err.message });
+      }
+      return next(err);
+    }
+  },
+);
 
 router.get('/:roomId/download', async (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.roomId)) {

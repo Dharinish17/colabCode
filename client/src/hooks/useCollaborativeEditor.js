@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SOCKET_EVENTS } from '../socket/events';
 
 function normalizedFile(file) {
@@ -6,13 +6,17 @@ function normalizedFile(file) {
 }
 
 export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
-  const [draft, setDraft] = useState(file?.content || '');
+  const [drafts, setDrafts] = useState(() => (
+    file?.id ? { [file.id]: file.content || '' } : {}
+  ));
+  const [activeDraftFileId, setActiveDraftFileId] = useState(file?.id || '');
   const [version, setVersion] = useState(file?.version || 0);
   const [syncStatus, setSyncStatus] = useState('saved');
   const [conflictFile, setConflictFile] = useState(null);
-  const draftRef = useRef(draft);
+  const draftRef = useRef(file?.content || '');
   const versionRef = useRef(version);
   const fileIdRef = useRef(file?.id || '');
+  const roomIdRef = useRef(roomId);
   const dirtyRef = useRef(false);
   const pendingRef = useRef(null);
   const joinedRef = useRef(false);
@@ -30,21 +34,27 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
     versionRef.current = nextFile.version;
     dirtyRef.current = false;
     conflictRef.current = null;
-    setDraft(nextFile.content);
+    setDrafts((current) => ({ ...current, [nextFile.id]: nextFile.content }));
     setVersion(nextFile.version);
     setConflictFile(null);
     setSyncStatus('saved');
     onFileUpdateRef.current(nextFile);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const roomChanged = roomIdRef.current !== roomId;
+    roomIdRef.current = roomId;
     fileIdRef.current = file?.id || '';
+    setActiveDraftFileId(file?.id || '');
     draftRef.current = file?.content || '';
     versionRef.current = Number.isInteger(file?.version) ? file.version : 0;
     dirtyRef.current = false;
     pendingRef.current = null;
     conflictRef.current = null;
-    setDraft(draftRef.current);
+    setDrafts((current) => {
+      const next = roomChanged ? {} : current;
+      return file?.id ? { ...next, [file.id]: draftRef.current } : next;
+    });
     setVersion(versionRef.current);
     setConflictFile(null);
     setSyncStatus('saved');
@@ -79,7 +89,11 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
         applyFile(currentFile);
       }
       for (const item of payload.files) {
-        if (item.id !== fileIdRef.current) onFileUpdateRef.current(normalizedFile(item));
+        if (item.id !== fileIdRef.current) {
+          const incoming = normalizedFile(item);
+          setDrafts((current) => ({ ...current, [incoming.id]: incoming.content }));
+          onFileUpdateRef.current(incoming);
+        }
       }
       if (dirtyRef.current) scheduleSend(0);
     };
@@ -88,6 +102,7 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
       if (payload.roomId !== roomId) return;
       const incoming = normalizedFile(payload.file);
       if (incoming.id !== fileIdRef.current) {
+        setDrafts((current) => ({ ...current, [incoming.id]: incoming.content }));
         onFileUpdateRef.current(incoming);
         return;
       }
@@ -185,10 +200,11 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
     };
   }, [roomId, scheduleSend, socket]);
 
-  const changeDraft = useCallback((value) => {
+  const changeDraft = useCallback((value, changedFileId = fileIdRef.current) => {
+    if (!changedFileId || changedFileId !== fileIdRef.current) return;
     draftRef.current = value;
     dirtyRef.current = true;
-    setDraft(value);
+    setDrafts((current) => ({ ...current, [changedFileId]: value }));
     if (conflictRef.current) {
       setSyncStatus('conflict');
     } else {
@@ -216,7 +232,9 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
   return {
-    draft,
+    draft: file?.id && activeDraftFileId === file.id
+      ? drafts[file.id] ?? file.content ?? ''
+      : file?.content || '',
     version,
     syncStatus,
     conflictFile,

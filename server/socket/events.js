@@ -11,6 +11,7 @@ module.exports = Object.freeze({
   CURSOR_STATE: 'cursor:state',
   CHAT_SEND: 'chat:send',
   CHAT_MESSAGE: 'chat:message',
+  EXECUTION_RESULT: 'execution:result',
   FILES_UPDATE: 'files:update',
   PRESENCE_SNAPSHOT: 'presence:snapshot',
   PRESENCE_USER_ONLINE: 'presence:user-online',

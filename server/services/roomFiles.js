@@ -130,6 +130,7 @@ async function deleteRoomFile({ roomId, fileId, userId }) {
 }
 
 async function updateRoomFile({ roomId, fileId, userId, content, version }) {
+  const objectId = new mongoose.Types.ObjectId(fileId);
   const room = await Room.findById(roomId)
     .select('_id owner members memberRoles settings.allowMemberEdits')
     .lean();
@@ -151,7 +152,7 @@ async function updateRoomFile({ roomId, fileId, userId, content, version }) {
     _id: roomId,
     files: {
       $elemMatch: {
-        _id: fileId,
+        _id: objectId,
         $or: [
           { version },
           ...(version === 0 ? [{ version: { $exists: false } }] : []),
@@ -176,15 +177,23 @@ async function updateRoomFile({ roomId, fileId, userId, content, version }) {
     filter,
     {
       $set: {
-        'files.$.content': content,
-        'files.$.updatedAt': new Date(),
+        'files.$[target].content': content,
+        'files.$[target].updatedAt': new Date(),
       },
-      $inc: { 'files.$.version': 1 },
+      $inc: { 'files.$[target].version': 1 },
     },
-    { returnDocument: 'after', runValidators: true },
+    {
+      arrayFilters: [{ 'target._id': objectId }],
+      returnDocument: 'after',
+      runValidators: true,
+    },
   );
   if (updated) {
-    return { status: 'updated', file: serializeFile(updated.files.id(fileId)) };
+    const updatedFile = updated.files.id(objectId);
+    if (!updatedFile) {
+      throw new Error('Updated room did not contain the requested file.');
+    }
+    return { status: 'updated', file: serializeFile(updatedFile) };
   }
 
   const current = await Room.findById(roomId)
@@ -202,8 +211,8 @@ async function updateRoomFile({ roomId, fileId, userId, content, version }) {
   if (currentRole === 'member' && current.settings?.allowMemberEdits === false) {
     return { status: 'forbidden', message: 'The owner has disabled editing for members.' };
   }
-  const latest = await Room.findOne({ _id: roomId, 'files._id': fileId })
-    .select({ files: { $elemMatch: { _id: fileId } } })
+  const latest = await Room.findOne({ _id: roomId, 'files._id': objectId })
+    .select({ files: { $elemMatch: { _id: objectId } } })
     .lean();
   if (!latest?.files?.length) return { status: 'not-found' };
   return {

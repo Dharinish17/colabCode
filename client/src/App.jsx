@@ -19,6 +19,16 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const ROOM_LANGUAGES = EDITOR_LANGUAGES.map(({ id, label }) => ({ value: id, label }));
+const EXECUTABLE_LANGUAGES = new Set([
+  'javascript',
+  'python',
+  'java',
+  'c',
+  'cpp',
+  'go',
+  'php',
+  'ruby',
+]);
 
 async function requestAuth(endpoint, body) {
   const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
@@ -715,6 +725,9 @@ function RoomPage({ currentUser }) {
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [busyAction, setBusyAction] = useState('');
+  const [isRunningCode, setIsRunningCode] = useState(false);
+  const [execution, setExecution] = useState(null);
+  const [executionError, setExecutionError] = useState('');
   const canJoinLivePresence = Boolean(room?.isOwner || room?.isMember);
   const presence = useRoomPresence(roomId, canJoinLivePresence);
   const onlineUserIds = new Set(presence.users.map((user) => user.id));
@@ -744,11 +757,33 @@ function RoomPage({ currentUser }) {
     return () => socket.off(SOCKET_EVENTS.FILES_UPDATE, handleFilesUpdate);
   }, [presence.socket, roomId]);
   useEffect(() => {
+    const socket = presence.socket;
+    if (!socket) return undefined;
+    const handleExecutionResult = (result) => {
+      if (result.roomId === roomId) {
+        setExecution(result);
+        setExecutionError('');
+      }
+    };
+    socket.on(SOCKET_EVENTS.EXECUTION_RESULT, handleExecutionResult);
+    return () => socket.off(SOCKET_EVENTS.EXECUTION_RESULT, handleExecutionResult);
+  }, [presence.socket, roomId]);
+  useEffect(() => {
+    setExecution(null);
+    setExecutionError('');
+  }, [roomId]);
+  useEffect(() => {
     if (['ROOM_ACCESS_REVOKED', 'ROOM_DELETED'].includes(presence.errorCode)) {
       navigate('/workspace', { replace: true });
     }
   }, [navigate, presence.errorCode]);
   const activeFile = room?.files?.find((file) => file.id === activeFileId) || null;
+  const canRunCode = Boolean(room && (
+    room.isOwner ||
+    room.currentRole === 'moderator' ||
+    (room.isMember && room.settings?.allowMemberEdits !== false)
+  ));
+  const activeLanguageIsExecutable = Boolean(activeFile && EXECUTABLE_LANGUAGES.has(activeFile.language));
   const [editorSettings, setEditorSettings] = useState({
     theme: 'vs-dark',
     fontSize: 14,
@@ -1126,6 +1161,30 @@ function RoomPage({ currentUser }) {
     });
   }
 
+  async function handleRunCode() {
+    if (!activeFile || !canRunCode || isRunningCode) return;
+    setIsRunningCode(true);
+    setExecutionError('');
+    try {
+      const response = await fetch(
+        `${API_URL}/api/rooms/${roomId}/files/${activeFile.id}/run`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          body: collaborativeEditor.draft,
+        },
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to run code.');
+      setExecution(result.execution);
+    } catch (runError) {
+      setExecutionError(runError.message);
+    } finally {
+      setIsRunningCode(false);
+    }
+  }
+
   function updateSettings(event) {
     setSettingsForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
@@ -1218,20 +1277,35 @@ function RoomPage({ currentUser }) {
                     <p className="text-xs font-medium uppercase tracking-[0.15em] text-slate-500">Collaborative workspace</p>
                     <h2 className="mt-1 text-lg font-semibold text-white">Code editor</h2>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs ${
-                    collaborativeEditor.syncStatus === 'saved'
-                      ? 'bg-emerald-400/10 text-emerald-300'
-                      : collaborativeEditor.syncStatus === 'conflict' || collaborativeEditor.syncStatus === 'error'
-                        ? 'bg-rose-400/10 text-rose-300'
-                        : 'bg-amber-400/10 text-amber-300'
-                  }`}>
-                    {collaborativeEditor.syncStatus === 'saved' ? 'All changes saved'
-                      : collaborativeEditor.syncStatus === 'saving' ? 'Saving…'
-                        : collaborativeEditor.syncStatus === 'conflict' ? 'Conflict'
-                          : collaborativeEditor.syncStatus === 'offline' ? 'Offline · changes pending'
-                            : collaborativeEditor.syncStatus === 'error' ? 'Sync failed'
-                              : 'Unsaved changes'}
-                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      className="rounded-lg bg-brand-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-brand-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!activeFile || !activeLanguageIsExecutable || !canRunCode || isRunningCode || collaborativeEditor.syncStatus === 'conflict'}
+                      onClick={handleRunCode}
+                      title={!canRunCode
+                        ? 'Join the room and have permission to edit to run code.'
+                        : !activeLanguageIsExecutable
+                          ? 'Code execution is not enabled for this language.'
+                          : undefined}
+                      type="button"
+                    >
+                      {isRunningCode ? 'Running…' : 'Run'}
+                    </button>
+                    <span className={`rounded-full px-2.5 py-1 text-xs ${
+                      collaborativeEditor.syncStatus === 'saved'
+                        ? 'bg-emerald-400/10 text-emerald-300'
+                        : collaborativeEditor.syncStatus === 'conflict' || collaborativeEditor.syncStatus === 'error'
+                          ? 'bg-rose-400/10 text-rose-300'
+                          : 'bg-amber-400/10 text-amber-300'
+                    }`}>
+                      {collaborativeEditor.syncStatus === 'saved' ? 'All changes saved'
+                        : collaborativeEditor.syncStatus === 'saving' ? 'Saving…'
+                          : collaborativeEditor.syncStatus === 'conflict' ? 'Conflict'
+                            : collaborativeEditor.syncStatus === 'offline' ? 'Offline · changes pending'
+                              : collaborativeEditor.syncStatus === 'error' ? 'Sync failed'
+                                : 'Unsaved changes'}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                   <div className="flex items-center justify-between gap-3">
@@ -1414,9 +1488,10 @@ function RoomPage({ currentUser }) {
                     <div className="mt-3 overflow-hidden rounded-xl border border-slate-800">
                       <Editor
                         height="min(65vh, 680px)"
+                        key={activeFile.id}
                         language={EDITOR_LANGUAGES.some((language) => language.id === activeFile.language) ? activeFile.language : 'plaintext'}
                         onMount={handleEditorMount}
-                        onChange={(value) => collaborativeEditor.changeDraft(value ?? '')}
+                        onChange={(value) => collaborativeEditor.changeDraft(value ?? '', activeFile.id)}
                         options={{
                           automaticLayout: true,
                           fontSize: editorSettings.fontSize,
@@ -1443,6 +1518,38 @@ function RoomPage({ currentUser }) {
                         </div>
                       </div>
                     )}
+                    {executionError && (
+                      <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200" role="alert">
+                        {executionError}
+                      </p>
+                    )}
+                    {execution && (
+                      <section className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4" aria-live="polite">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-semibold text-white">
+                            Run result · {execution.fileName} · {execution.language}
+                          </h3>
+                          <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-300">
+                            {execution.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {execution.actor.username}
+                          {execution.executionTime !== null && ` · ${execution.executionTime}s`}
+                          {` · ${new Date(execution.createdAt).toLocaleTimeString()}`}
+                        </p>
+                        <div className="mt-3 grid gap-3">
+                          <div>
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">stdout</p>
+                            <pre className="min-h-10 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-3 font-mono text-xs text-slate-200">{execution.stdout || '(empty)'}</pre>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">stderr</p>
+                            <pre className="min-h-10 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-3 font-mono text-xs text-rose-200">{execution.stderr || '(empty)'}</pre>
+                          </div>
+                        </div>
+                      </section>
+                    )}
                     {!room.isOwner && room.currentRole !== 'moderator' && !room.isMember && (
                       <p className="mt-2 text-xs text-slate-500">Join this room to edit the file.</p>
                     )}
@@ -1454,7 +1561,7 @@ function RoomPage({ currentUser }) {
                 <a className="mt-4 inline-flex text-xs font-medium text-brand-300 hover:text-brand-200" href={`${API_URL}/api/rooms/${roomId}/download`} rel="noreferrer">
                   Download workspace
                 </a>
-                <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code execution is planned for a later phase.</p>
+                <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code runs in an isolated Judge0 sandbox.</p>
               </section>
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
