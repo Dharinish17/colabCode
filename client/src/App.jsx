@@ -1561,7 +1561,7 @@ function RoomPage({ currentUser }) {
                 <a className="mt-4 inline-flex text-xs font-medium text-brand-300 hover:text-brand-200" href={`${API_URL}/api/rooms/${roomId}/download`} rel="noreferrer">
                   Download workspace
                 </a>
-                <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code runs in an isolated Judge0 sandbox.</p>
+                <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code runs in Wandbox’s isolated sandbox.</p>
               </section>
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
