@@ -1165,6 +1165,37 @@ router.get('/:roomId/download', async (req, res, next) => {
   }
 });
 
+router.post('/:roomId/share-link', async (req, res, next) => {
+  const { roomId } = req.params;
+  if (!mongoose.isObjectIdOrHexString(roomId)) {
+    return res.status(404).json({ success: false, message: 'Room not found.' });
+  }
+
+  try {
+    const room = await Room.findById(roomId).select('_id owner members').lean();
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+
+    const userId = req.user.id;
+    const isOwner = room.owner.toString() === userId;
+    const isMember = room.members.some((member) => member.toString() === userId);
+    if (!isOwner && !isMember) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only room members can share this room.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      path: `/rooms/${room._id.toString()}`,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post('/:roomId/leave', async (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.roomId)) {
     return res.status(404).json({ success: false, message: 'Room not found.' });

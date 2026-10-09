@@ -1184,6 +1184,21 @@ function RoomPage({ currentUser }) {
     }
   }
 
+  async function handleCopyShareLink() {
+    setBusyAction('share');
+    setError('');
+    setActionMessage('');
+    try {
+      const result = await requestRooms(`/${roomId}/share-link`, { method: 'POST' });
+      await navigator.clipboard.writeText(new URL(result.path, window.location.origin).toString());
+      setActionMessage('Room link copied to clipboard.');
+    } catch (shareError) {
+      setError(shareError.message || 'Unable to copy the room link.');
+    } finally {
+      setBusyAction('');
+    }
+  }
+
   function showFileDialog(mode, file = null) {
     const language = file?.language || room.settings?.defaultLanguage || 'javascript';
     const languageDefinition = EDITOR_LANGUAGES.find((item) => item.id === language) || EDITOR_LANGUAGES[0];
@@ -1293,9 +1308,21 @@ function RoomPage({ currentUser }) {
                   </div>
                 </div>
               </div>
-              <span className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize ${room.visibility === 'public' ? 'bg-brand-400/10 text-brand-200' : 'bg-slate-800 text-slate-300'}`}>
-                {room.visibility} room
-              </span>
+              <div className="flex items-center gap-3">
+                {canJoinLivePresence && (
+                  <button
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-brand-400/50 hover:text-brand-200 disabled:cursor-wait disabled:opacity-50"
+                    disabled={Boolean(busyAction)}
+                    onClick={handleCopyShareLink}
+                    type="button"
+                  >
+                    {busyAction === 'share' ? 'Copying…' : 'Copy room link'}
+                  </button>
+                )}
+                <span className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize ${room.visibility === 'public' ? 'bg-brand-400/10 text-brand-200' : 'bg-slate-800 text-slate-300'}`}>
+                  {room.visibility} room
+                </span>
+              </div>
             </div>
             <p className="mt-6 max-w-2xl leading-7 text-slate-400">{room.description || 'A focused space to build something together.'}</p>
             {room.visibility === 'private' && !room.isOwner && !room.isMember ? (
