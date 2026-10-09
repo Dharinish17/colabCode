@@ -741,6 +741,11 @@ function RoomPage({ currentUser }) {
   const canJoinLivePresence = Boolean(room?.isOwner || room?.isMember);
   const presence = useRoomPresence(roomId, canJoinLivePresence);
   const onlineUserIds = new Set(presence.users.map((user) => user.id));
+  const canEditFile = Boolean(room && (
+    room.isOwner ||
+    room.currentRole === 'moderator' ||
+    (room.isMember && room.settings?.allowMemberEdits !== false)
+  ));
   const [monacoEditor, setMonacoEditor] = useState(null);
   const [monacoApi, setMonacoApi] = useState(null);
   const editorDecorationIdsRef = useRef([]);
@@ -810,6 +815,7 @@ function RoomPage({ currentUser }) {
     socket: presence.socket,
     roomId,
     file: activeFile,
+    canEdit: canEditFile,
     onFileUpdate: updateRoomFile,
   });
   const handleEditorMount = useCallback((editor, monaco) => {
@@ -1602,9 +1608,7 @@ function RoomPage({ currentUser }) {
                           automaticLayout: true,
                           fontSize: editorSettings.fontSize,
                           minimap: { enabled: editorSettings.minimap },
-                          readOnly: !room.isOwner && room.currentRole !== 'moderator' && (
-                            !room.isMember || room.settings?.allowMemberEdits === false
-                          ),
+                          readOnly: !canEditFile,
                           scrollBeyondLastLine: false,
                           tabSize: 2,
                           wordWrap: editorSettings.wordWrap,

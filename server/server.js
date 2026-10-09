@@ -43,6 +43,18 @@ app.use(
     credentials: true,
   }),
 );
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+  if (req.get('origin') !== CLIENT_URL) {
+    return res.status(403).json({
+      success: false,
+      message: 'Request origin is not allowed.',
+    });
+  }
+  return next();
+});
 app.use(express.json({ limit: '16kb' }));
 app.use(cookieParser());
 app.set('jwtSecret', jwtSecret);

@@ -5,7 +5,7 @@ function normalizedFile(file) {
   return { ...file, version: Number.isInteger(file.version) ? file.version : 0 };
 }
 
-export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
+export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, onFileUpdate }) {
   const [drafts, setDrafts] = useState(() => (
     file?.id ? { [file.id]: file.content || '' } : {}
   ));
@@ -156,6 +156,7 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
       if (
         !socket?.connected ||
         !joinedRef.current ||
+        !canEdit ||
         !dirtyRef.current ||
         pendingRef.current ||
         conflictRef.current ||
@@ -198,10 +199,11 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
         },
       );
     };
-  }, [roomId, scheduleSend, socket]);
+  }, [canEdit, roomId, scheduleSend, socket]);
 
   const changeDraft = useCallback((value, changedFileId = fileIdRef.current) => {
     if (!changedFileId || changedFileId !== fileIdRef.current) return;
+    if (value === draftRef.current || !canEdit) return;
     draftRef.current = value;
     dirtyRef.current = true;
     setDrafts((current) => ({ ...current, [changedFileId]: value }));
@@ -211,7 +213,7 @@ export function useCollaborativeEditor({ socket, roomId, file, onFileUpdate }) {
       setSyncStatus(socket?.connected ? 'unsaved' : 'offline');
       scheduleSend();
     }
-  }, [scheduleSend, socket]);
+  }, [canEdit, scheduleSend, socket]);
 
   const resolveConflict = useCallback((resolution) => {
     const latest = conflictRef.current;
