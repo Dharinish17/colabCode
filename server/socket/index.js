@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Room = require('../models/Room');
+const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
 const { fileVersion, updateRoomFile } = require('../services/roomFiles');
@@ -329,6 +330,83 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
           success: false,
           code: 'CURSOR_CLEAR_FAILED',
           message: 'Unable to clear the editor cursor.',
+        });
+      }
+    });
+
+    socket.on(EVENTS.CHAT_SEND, async (payload, callback) => {
+      const { roomId, body } = payload || {};
+      const messageBody = typeof body === 'string' ? body.trim() : '';
+      if (
+        !mongoose.isObjectIdOrHexString(roomId) ||
+        !messageBody ||
+        messageBody.length > 2000 ||
+        Buffer.byteLength(messageBody, 'utf8') > 8000
+      ) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'INVALID_CHAT_MESSAGE',
+          message: 'Messages must contain 1–2000 characters.',
+        });
+      }
+      if (!socket.data.joinedRooms.has(roomId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'ROOM_NOT_JOINED',
+          message: 'Join the room before sending a chat message.',
+        });
+      }
+
+      const now = Date.now();
+      const recentMessages = (socket.data.chatMessageTimes || [])
+        .filter((timestamp) => now - timestamp < 10000);
+      if (recentMessages.length >= 10) {
+        socket.data.chatMessageTimes = recentMessages;
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'CHAT_RATE_LIMITED',
+          message: 'You are sending messages too quickly. Please wait a few seconds.',
+        });
+      }
+      socket.data.chatMessageTimes = [...recentMessages, now];
+
+      try {
+        const room = await Room.findOne({
+          _id: roomId,
+          $or: [{ owner: socket.data.user.id }, { members: socket.data.user.id }],
+        }).select('_id');
+        if (!room) {
+          socket.emit(EVENTS.ROOM_ERROR, {
+            code: 'ROOM_ACCESS_REVOKED',
+            message: 'Your access to this room has changed.',
+          });
+          socket.disconnect(true);
+          return;
+        }
+
+        const saved = await ChatMessage.create({
+          room: room._id,
+          sender: socket.data.user.id,
+          senderUsername: socket.data.user.username,
+          body: messageBody,
+        });
+        const message = {
+          id: saved.id,
+          sender: {
+            id: socket.data.user.id,
+            username: socket.data.user.username,
+          },
+          body: saved.body,
+          createdAt: saved.createdAt,
+        };
+        await emitRoomEvent(io, roomId, EVENTS.CHAT_MESSAGE, { roomId, message });
+        return acknowledge(socket, callback, { success: true, message });
+      } catch (error) {
+        console.error('Socket chat message failed:', error);
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'CHAT_SEND_FAILED',
+          message: 'Unable to send your message. Please try again.',
         });
       }
     });

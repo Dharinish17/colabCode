@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Room = require('../models/Room');
+const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
 const { LANGUAGE_EXTENSIONS, SUPPORTED_LANGUAGES } = require('../constants/languages');
 const { requireAuth } = require('../middleware/auth');
@@ -560,6 +561,56 @@ router.patch('/:roomId/access-requests/:requesterId', async (req, res, next) => 
   }
 });
 
+router.get('/:roomId/messages', async (req, res, next) => {
+  const { roomId } = req.params;
+  const { before } = req.query;
+  if (!mongoose.isObjectIdOrHexString(roomId)) {
+    return res.status(404).json({ success: false, message: 'Room not found.' });
+  }
+  if (before !== undefined && !mongoose.isObjectIdOrHexString(before)) {
+    return res.status(400).json({ success: false, message: 'The message history cursor is invalid.' });
+  }
+
+  try {
+    const room = await Room.findOne({
+      _id: roomId,
+      $or: [{ owner: req.user._id }, { members: req.user._id }],
+    }).select('_id');
+    if (!room) {
+      const exists = await Room.exists({ _id: roomId });
+      return res.status(exists ? 403 : 404).json({
+        success: false,
+        message: exists ? 'Room membership is required to view chat history.' : 'Room not found.',
+      });
+    }
+
+    const filter = { room: room._id };
+    if (before) filter._id = { $lt: new mongoose.Types.ObjectId(before) };
+    const results = await ChatMessage.find(filter)
+      .sort({ _id: -1 })
+      .limit(51)
+      .lean();
+    const hasMore = results.length > 50;
+    const messages = results.slice(0, 50).reverse().map((message) => ({
+      id: message._id.toString(),
+      sender: {
+        id: message.sender.toString(),
+        username: message.senderUsername,
+      },
+      body: message.body,
+      createdAt: message.createdAt,
+    }));
+    return res.json({
+      success: true,
+      messages,
+      hasMore,
+      nextBefore: hasMore ? messages[0].id : null,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.patch('/:roomId', async (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.roomId)) {
     return res.status(404).json({ success: false, message: 'Room not found.' });
@@ -927,6 +978,7 @@ router.delete('/:roomId', async (req, res, next) => {
         message: exists ? 'Only the room owner can delete this room.' : 'Room not found.',
       });
     }
+    await ChatMessage.deleteMany({ room: room._id });
     await disconnectRoom(req.app.get('io'), req.params.roomId);
     return res.json({ success: true, message: 'Room deleted.' });
   } catch (err) {

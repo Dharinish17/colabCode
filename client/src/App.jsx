@@ -5,6 +5,7 @@ import { useCollaborativeCursors } from './hooks/useCollaborativeCursors';
 import { useCollaborativeEditor } from './hooks/useCollaborativeEditor';
 import { useRoomPresence } from './hooks/useRoomPresence';
 import { SOCKET_EVENTS } from './socket/events';
+import RoomChat from './components/RoomChat';
 import {
   BrowserRouter,
   Link,
@@ -1505,6 +1506,21 @@ function RoomPage({ currentUser }) {
                 )}
               </section>
             </div>
+            {canJoinLivePresence ? (
+              <div className="mt-6">
+                <RoomChat
+                  connectionStatus={presence.status}
+                  currentUser={currentUser}
+                  roomId={roomId}
+                  socket={presence.socket}
+                />
+              </div>
+            ) : (
+              <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+                <h2 className="text-lg font-semibold text-white">Room chat</h2>
+                <p className="mt-2 text-sm text-slate-400">Join this room to view chat history and send messages.</p>
+              </section>
+            )}
 
             {(room.isOwner || room.currentRole === 'moderator') && (
               <div className="mt-8 space-y-4">

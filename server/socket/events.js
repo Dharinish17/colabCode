@@ -9,6 +9,8 @@ module.exports = Object.freeze({
   CURSOR_UPDATE: 'cursor:update',
   CURSOR_CLEAR: 'cursor:clear',
   CURSOR_STATE: 'cursor:state',
+  CHAT_SEND: 'chat:send',
+  CHAT_MESSAGE: 'chat:message',
   FILES_UPDATE: 'files:update',
   PRESENCE_SNAPSHOT: 'presence:snapshot',
   PRESENCE_USER_ONLINE: 'presence:user-online',
