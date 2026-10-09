@@ -5,15 +5,31 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const PAGE_SIZE = 50;
 const MAX_MESSAGE_LENGTH = 2000;
 
+async function readChatResult(response) {
+  let result = null;
+  try {
+    result = await response.json();
+  } catch {
+    if (response.ok) {
+      throw new Error('The chat service returned an invalid response.');
+    }
+  }
+  if (!response.ok) {
+    throw new Error(result?.message || 'Unable to load room chat.');
+  }
+  if (!result || typeof result !== 'object') {
+    throw new Error('The chat service returned an invalid response.');
+  }
+  return result;
+}
+
 async function loadMessages(roomId, before, signal) {
   const query = before ? `?before=${encodeURIComponent(before)}` : '';
   const response = await fetch(`${API_URL}/api/rooms/${roomId}/messages${query}`, {
     credentials: 'include',
     signal,
   });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.message || 'Unable to load room chat.');
-  return result;
+  return readChatResult(response);
 }
 
 function appendUnique(messages, message) {

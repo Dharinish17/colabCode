@@ -67,6 +67,10 @@ app.get('/', (req, res) => {
   });
 });
 
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, message: 'API endpoint not found.' });
+});
+
 app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
@@ -79,7 +83,43 @@ app.use((err, req, res, next) => {
     return res.status(413).json({ success: false, message: 'Request body is too large.' });
   }
 
-  console.error('Request failed:', err);
+  if (err.name === 'CastError' || err.name === 'ValidationError') {
+    return res.status(400).json({ success: false, message: 'The request contains invalid data.' });
+  }
+  if (err.code === 11000) {
+    return res.status(409).json({ success: false, message: 'The request conflicts with existing data.' });
+  }
+  if (
+    [
+      'MongoNetworkError',
+      'MongoNetworkTimeoutError',
+      'MongoServerSelectionError',
+      'MongooseServerSelectionError',
+      'MongoTopologyClosedError',
+      'MongoNotConnectedError',
+    ]
+      .includes(err.name)
+  ) {
+    console.error('Database operation unavailable:', {
+      errorName: err.name,
+      method: req.method,
+      path: req.path,
+    });
+    return res.status(503).json({
+      success: false,
+      message: 'The database is temporarily unavailable. Please try again later.',
+    });
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Request failed:', {
+      errorName: err.name || 'Error',
+      method: req.method,
+      path: req.path,
+    });
+  } else {
+    console.error('Request failed:', err);
+  }
   return res.status(500).json({ success: false, message: 'An unexpected server error occurred.' });
 });
 

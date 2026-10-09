@@ -30,6 +30,27 @@ const EXECUTABLE_LANGUAGES = new Set([
   'ruby',
 ]);
 
+async function readApiResult(response, fallbackMessage) {
+  let result = null;
+  try {
+    result = await response.json();
+  } catch {
+    if (response.ok) {
+      throw new Error('The server returned an invalid response. Please try again.');
+    }
+  }
+
+  if (!response.ok) {
+    const error = new Error(result?.message || fallbackMessage);
+    error.status = response.status;
+    throw error;
+  }
+  if (!result || typeof result !== 'object') {
+    throw new Error('The server returned an invalid response. Please try again.');
+  }
+  return result;
+}
+
 async function requestAuth(endpoint, body) {
   const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
     method: body ? 'POST' : 'GET',
@@ -37,13 +58,7 @@ async function requestAuth(endpoint, body) {
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  const result = await response.json();
-  if (!response.ok) {
-    const error = new Error(result.message || 'The request could not be completed.');
-    error.status = response.status;
-    throw error;
-  }
-  return result;
+  return readApiResult(response, 'The authentication request could not be completed.');
 }
 
 async function requestRooms(endpoint, { method = 'GET', body, signal } = {}) {
@@ -54,13 +69,7 @@ async function requestRooms(endpoint, { method = 'GET', body, signal } = {}) {
     body: body ? JSON.stringify(body) : undefined,
     signal,
   });
-  const result = await response.json();
-  if (!response.ok) {
-    const error = new Error(result.message || 'The request could not be completed.');
-    error.status = response.status;
-    throw error;
-  }
-  return result;
+  return readApiResult(response, 'The room request could not be completed.');
 }
 
 function Brand({ light = false }) {
@@ -1164,8 +1173,7 @@ function RoomPage({ currentUser }) {
         credentials: 'include',
       });
       if (!response.ok) {
-        const result = await response.json();
-        throw new Error(result.message || 'Unable to download the workspace.');
+        await readApiResult(response, 'Unable to download the workspace.');
       }
       const archive = await response.blob();
       const objectUrl = URL.createObjectURL(archive);
@@ -1262,8 +1270,7 @@ function RoomPage({ currentUser }) {
           body: collaborativeEditor.draft,
         },
       );
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || 'Unable to run code.');
+      const result = await readApiResult(response, 'Unable to run code.');
       setExecution(result.execution);
     } catch (runError) {
       setExecutionError(runError.message);
