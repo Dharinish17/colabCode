@@ -711,6 +711,7 @@ function RoomPage({ currentUser }) {
   const navigate = useNavigate();
   const [room, setRoom] = useState(null);
   const [accessRequests, setAccessRequests] = useState([]);
+  const loadRoomRef = useRef(null);
   const [activeFileId, setActiveFileId] = useState('');
   const [fileDialog, setFileDialog] = useState(null);
   const [settingsForm, setSettingsForm] = useState({
@@ -950,6 +951,48 @@ function RoomPage({ currentUser }) {
       setAccessRequests([]);
     }
   }
+
+  loadRoomRef.current = loadRoom;
+
+  useEffect(() => {
+    const socket = presence.socket;
+    if (!socket) return undefined;
+
+    function handleAccessRequestCreated(payload) {
+      if (payload.roomId !== roomId) return;
+      setAccessRequests((current) => (
+        current.some((request) => request.user.id === payload.request.user.id)
+          ? current
+          : [...current, payload.request]
+      ));
+      setActionMessage(`New access request from ${payload.request.user.username}.`);
+    }
+
+    function handleAccessRequestResolved(payload) {
+      if (payload.roomId !== roomId) return;
+      setAccessRequests((current) => (
+        current.filter((request) => request.user.id !== payload.requesterId)
+      ));
+
+      if (payload.requesterId === currentUser.id) {
+        const decisionMessage = `Your access request was ${payload.decision === 'approve' ? 'approved' : 'rejected'}.`;
+        setActionMessage(decisionMessage);
+        loadRoomRef.current?.().catch((loadError) => setError(loadError.message));
+        return;
+      }
+
+      setActionMessage(
+        `An access request was ${payload.decision === 'approve' ? 'approved' : 'rejected'}${payload.actor?.username ? ` by ${payload.actor.username}` : ''}.`,
+      );
+    }
+
+    socket.on(SOCKET_EVENTS.ACCESS_REQUEST_CREATED, handleAccessRequestCreated);
+    socket.on(SOCKET_EVENTS.ACCESS_REQUEST_RESOLVED, handleAccessRequestResolved);
+    return () => {
+      socket.off(SOCKET_EVENTS.ACCESS_REQUEST_CREATED, handleAccessRequestCreated);
+      socket.off(SOCKET_EVENTS.ACCESS_REQUEST_RESOLVED, handleAccessRequestResolved);
+    };
+  }, [currentUser.id, presence.socket, roomId]);
 
   useEffect(() => {
     let active = true;
@@ -1230,7 +1273,7 @@ function RoomPage({ currentUser }) {
               <div className="mt-8 max-w-2xl rounded-2xl border border-brand-400/20 bg-brand-400/5 p-6">
                 <h2 className="text-lg font-semibold text-white">This room is private</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Request access from {room.owner.username}. The owner must approve your request before room contents are available.
+                  Request access from {room.owner.username}. The owner or a moderator must approve your request before room contents are available.
                 </p>
                 {room.accessRequestStatus === 'pending' ? (
                   <p className="mt-5 inline-flex rounded-lg border border-brand-400/20 bg-brand-400/10 px-3 py-2 text-sm text-brand-200">Access request pending</p>

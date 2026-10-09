@@ -5,6 +5,14 @@ function roomChannel(roomId) {
   return `room:${roomId}`;
 }
 
+function userChannel(userId) {
+  return `user:${userId}`;
+}
+
+function emitUserEvent(io, userId, event, payload) {
+  io.to(userChannel(userId)).emit(event, payload);
+}
+
 async function emitRoomEvent(io, roomId, event, payload, excludedSocketId = null) {
   const room = await Room.findById(roomId).select('_id owner members').lean();
   if (!room) return;
@@ -50,4 +58,11 @@ async function disconnectRoom(io, roomId) {
   }));
 }
 
-module.exports = { disconnectRoom, disconnectRoomUser, emitRoomEvent, roomChannel };
+module.exports = {
+  disconnectRoom,
+  disconnectRoomUser,
+  emitRoomEvent,
+  emitUserEvent,
+  roomChannel,
+  userChannel,
+};

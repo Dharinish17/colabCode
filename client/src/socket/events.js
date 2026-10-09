@@ -16,4 +16,6 @@ export const SOCKET_EVENTS = Object.freeze({
   PRESENCE_SNAPSHOT: 'presence:snapshot',
   PRESENCE_USER_ONLINE: 'presence:user-online',
   PRESENCE_USER_OFFLINE: 'presence:user-offline',
+  ACCESS_REQUEST_CREATED: 'room:access-request-created',
+  ACCESS_REQUEST_RESOLVED: 'room:access-request-resolved',
 });

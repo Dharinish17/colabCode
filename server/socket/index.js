@@ -4,7 +4,7 @@ const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
 const { fileVersion, updateRoomFile } = require('../services/roomFiles');
-const { emitRoomEvent, roomChannel } = require('./access');
+const { emitRoomEvent, roomChannel, userChannel } = require('./access');
 const EVENTS = require('./events');
 
 function parseCookies(header) {
@@ -118,6 +118,7 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
 
   io.on('connection', (socket) => {
     socket.data.joinedRooms = new Set();
+    socket.join(userChannel(socket.data.user.id));
 
     socket.on(EVENTS.ROOM_JOIN, async (payload, callback) => {
       const roomId = typeof payload === 'string' ? payload : payload?.roomId;

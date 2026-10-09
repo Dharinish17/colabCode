@@ -14,7 +14,7 @@ export function useRoomPresence(roomId, enabled) {
   });
 
   useEffect(() => {
-    if (!roomId || !enabled) {
+    if (!roomId) {
       setPresence({ status: 'idle', users: [], error: '', errorCode: '' });
       return undefined;
     }
@@ -25,9 +25,12 @@ export function useRoomPresence(roomId, enabled) {
     });
     let active = true;
     setSocketClient(socket);
-    setPresence({ status: 'connecting', users: [], error: '', errorCode: '' });
+    setPresence(enabled
+      ? { status: 'connecting', users: [], error: '', errorCode: '' }
+      : { status: 'idle', users: [], error: '', errorCode: '' });
 
     function joinCurrentRoom() {
+      if (!enabled) return;
       setPresence({ status: 'joining', users: [], error: '', errorCode: '' });
       socket.emit(SOCKET_EVENTS.ROOM_JOIN, { roomId }, (result) => {
         if (!active) return;
@@ -68,7 +71,7 @@ export function useRoomPresence(roomId, enabled) {
     }
 
     function handleConnectError(error) {
-      if (!active) return;
+      if (!active || !enabled) return;
       setPresence({
         status: 'error',
         users: [],
@@ -79,6 +82,10 @@ export function useRoomPresence(roomId, enabled) {
 
     function handleDisconnect(reason) {
       if (!active || reason === 'io client disconnect') return;
+      if (!enabled) {
+        setPresence({ status: 'idle', users: [], error: '', errorCode: '' });
+        return;
+      }
       if (reason === 'io server disconnect') {
         setPresence((current) => ({
           status: 'error',

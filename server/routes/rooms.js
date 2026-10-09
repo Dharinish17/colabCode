@@ -13,7 +13,12 @@ const {
   renameRoomFile,
   updateRoomFile,
 } = require('../services/roomFiles');
-const { disconnectRoom, disconnectRoomUser, emitRoomEvent } = require('../socket/access');
+const {
+  disconnectRoom,
+  disconnectRoomUser,
+  emitRoomEvent,
+  emitUserEvent,
+} = require('../socket/access');
 const SOCKET_EVENTS = require('../socket/events');
 
 const router = express.Router();
@@ -94,6 +99,26 @@ function roleFor(room, userId) {
 
 function canManageMembers(room, userId) {
   return ['owner', 'moderator'].includes(roleFor(room, userId));
+}
+
+function roomManagerIds(room) {
+  const ownerId = memberId(room.owner);
+  const roles = room.memberRoles instanceof Map
+    ? room.memberRoles
+    : new Map(Object.entries(room.memberRoles || {}));
+  return [
+    ownerId,
+    ...(room.members || [])
+      .filter((member) => roles.get(memberId(member)) === 'moderator')
+      .map(memberId),
+  ];
+}
+
+function notifyRoomManagers(io, room, event, payload, additionalUserIds = []) {
+  const recipients = new Set([...roomManagerIds(room), ...additionalUserIds.map(String)]);
+  for (const userId of recipients) {
+    emitUserEvent(io, userId, event, payload);
+  }
 }
 
 function memberRolePath(userId) {
@@ -414,6 +439,23 @@ router.post('/:roomId/request-access', async (req, res, next) => {
     );
 
     if (room) {
+      const accessRequest = room.accessRequests.find(
+        (request) => request.user.toString() === userId.toString(),
+      );
+      notifyRoomManagers(
+        req.app.get('io'),
+        room,
+        SOCKET_EVENTS.ACCESS_REQUEST_CREATED,
+        {
+          roomId: room.id,
+          roomTitle: room.title,
+          request: {
+            user: { id: userId.toString(), username: req.user.username, email: req.user.email },
+            status: 'pending',
+            createdAt: accessRequest?.createdAt || new Date(),
+          },
+        },
+      );
       return res.status(201).json({ success: true, status: 'pending' });
     }
 
@@ -441,6 +483,22 @@ router.post('/:roomId/request-access', async (req, res, next) => {
       accessRequest.createdAt = new Date();
       accessRequest.resolvedAt = null;
       await existing.save();
+    }
+    if (accessRequest) {
+      notifyRoomManagers(
+        req.app.get('io'),
+        existing,
+        SOCKET_EVENTS.ACCESS_REQUEST_CREATED,
+        {
+          roomId: existing.id,
+          roomTitle: existing.title,
+          request: {
+            user: { id: userId.toString(), username: req.user.username, email: req.user.email },
+            status: 'pending',
+            createdAt: accessRequest.createdAt,
+          },
+        },
+      );
     }
     return res.status(accessRequest ? 200 : 500).json(
       accessRequest
@@ -540,6 +598,19 @@ router.patch('/:roomId/access-requests/:requesterId', async (req, res, next) => 
         },
       );
       if (room) {
+        notifyRoomManagers(
+          req.app.get('io'),
+          room,
+          SOCKET_EVENTS.ACCESS_REQUEST_RESOLVED,
+          {
+            roomId: room.id,
+            roomTitle: room.title,
+            requesterId,
+            decision,
+            actor: { id: req.user.id, username: req.user.username },
+          },
+          [requesterId],
+        );
         return res.json({ success: true, decision, roomId: room.id });
       }
     } else {
@@ -560,6 +631,19 @@ router.patch('/:roomId/access-requests/:requesterId', async (req, res, next) => 
         },
       );
       if (room) {
+        notifyRoomManagers(
+          req.app.get('io'),
+          room,
+          SOCKET_EVENTS.ACCESS_REQUEST_RESOLVED,
+          {
+            roomId: room.id,
+            roomTitle: room.title,
+            requesterId,
+            decision,
+            actor: { id: req.user.id, username: req.user.username },
+          },
+          [requesterId],
+        );
         return res.json({ success: true, decision, roomId: room.id });
       }
     }
