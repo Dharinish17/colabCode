@@ -773,6 +773,31 @@ function RoomPage({ currentUser }) {
   }, []);
 
   useEffect(() => {
+    if (!monacoEditor) return undefined;
+    const editorNode = monacoEditor.getDomNode();
+    if (!editorNode) return undefined;
+
+    const handleEditorWheel = (event) => {
+      if (event.ctrlKey || event.deltaY === 0) return;
+      const maxScrollTop = Math.max(
+        0,
+        monacoEditor.getScrollHeight() - monacoEditor.getLayoutInfo().height,
+      );
+      const scrollTop = monacoEditor.getScrollTop();
+      const scrollingPastTop = event.deltaY < 0 && scrollTop <= 0;
+      const scrollingPastBottom = event.deltaY > 0 && scrollTop >= maxScrollTop - 1;
+      if (!scrollingPastTop && !scrollingPastBottom) return;
+
+      window.scrollBy({ top: event.deltaY, behavior: 'instant' });
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    editorNode.addEventListener('wheel', handleEditorWheel, { capture: true, passive: false });
+    return () => editorNode.removeEventListener('wheel', handleEditorWheel, { capture: true });
+  }, [monacoEditor]);
+
+  useEffect(() => {
     if (!monacoEditor || !activeFileId) return undefined;
 
     const publishCurrentCursor = (event) => {
