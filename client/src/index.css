@@ -50,3 +50,27 @@ a {
   outline: 2px solid var(--brand);
   outline-offset: 3px;
 }
+
+.remote-cursor-label {
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-family: Inter, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 4px;
+}
+
+.remote-cursor-color-0 { background: #0284c7; }
+.remote-cursor-color-1 { background: #7c3aed; }
+.remote-cursor-color-2 { background: #059669; }
+.remote-cursor-color-3 { background: #d97706; }
+.remote-cursor-color-4 { background: #db2777; }
+.remote-cursor-color-5 { background: #4f46e5; }
+
+.remote-cursor-selection-0 { background: rgb(14 165 233 / 24%); }
+.remote-cursor-selection-1 { background: rgb(139 92 246 / 24%); }
+.remote-cursor-selection-2 { background: rgb(16 185 129 / 24%); }
+.remote-cursor-selection-3 { background: rgb(245 158 11 / 24%); }
+.remote-cursor-selection-4 { background: rgb(236 72 153 / 24%); }
+.remote-cursor-selection-5 { background: rgb(99 102 241 / 24%); }

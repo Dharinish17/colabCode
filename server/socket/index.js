@@ -34,8 +34,27 @@ function acknowledge(socket, callback, response) {
   }
 }
 
+function validPosition(position) {
+  return position &&
+    Number.isInteger(position.lineNumber) &&
+    position.lineNumber >= 1 &&
+    position.lineNumber <= 100000 &&
+    Number.isInteger(position.column) &&
+    position.column >= 1 &&
+    position.column <= 100000;
+}
+
+function validSelection(selection) {
+  return selection === null || (
+    selection &&
+    validPosition({ lineNumber: selection.startLineNumber, column: selection.startColumn }) &&
+    validPosition({ lineNumber: selection.endLineNumber, column: selection.endColumn })
+  );
+}
+
 function configureSocket(io, { cookieName, jwtSecret, issuer }) {
   const presenceByRoom = new Map();
+  const cursorsByRoom = new Map();
 
   io.use(async (socket, next) => {
     const token = parseCookies(socket.handshake.headers.cookie || '')[cookieName];
@@ -65,6 +84,7 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
     const roomPresence = presenceByRoom.get(roomId);
     const userPresence = roomPresence?.get(socket.data.user.id);
     joinedRooms.delete(roomId);
+    await clearSocketCursor(socket, roomId);
     await socket.leave(roomChannel(roomId));
 
     if (!userPresence) return true;
@@ -77,6 +97,21 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
       });
     }
     if (roomPresence.size === 0) presenceByRoom.delete(roomId);
+    return true;
+  }
+
+  async function clearSocketCursor(socket, roomId, fileId = null) {
+    const roomCursors = cursorsByRoom.get(roomId);
+    const current = roomCursors?.get(socket.id);
+    if (!current || (fileId && current.fileId !== fileId)) return false;
+    roomCursors.delete(socket.id);
+    if (roomCursors.size === 0) cursorsByRoom.delete(roomId);
+    await emitRoomEvent(io, roomId, EVENTS.CURSOR_CLEAR, {
+      roomId,
+      cursorId: socket.id,
+      userId: socket.data.user.id,
+      fileId: current.fileId,
+    }, socket.id);
     return true;
   }
 
@@ -144,6 +179,10 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
             version: fileVersion(file),
           })),
         });
+        socket.emit(EVENTS.CURSOR_STATE, {
+          roomId,
+          cursors: [...(cursorsByRoom.get(roomId)?.values() || [])],
+        });
         if (becameOnline) {
           socket.to(roomChannel(roomId)).emit(EVENTS.PRESENCE_USER_ONLINE, {
             roomId,
@@ -157,6 +196,139 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
           success: false,
           code: 'ROOM_JOIN_FAILED',
           message: 'Unable to join live room presence.',
+        });
+      }
+    });
+
+    socket.on(EVENTS.CURSOR_UPDATE, async (payload, callback) => {
+      const { roomId, fileId, position, selection = null, sequence } = payload || {};
+      if (
+        !mongoose.isObjectIdOrHexString(roomId) ||
+        !mongoose.isObjectIdOrHexString(fileId) ||
+        !validPosition(position) ||
+        !validSelection(selection) ||
+        !Number.isSafeInteger(sequence) ||
+        sequence < 1
+      ) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'INVALID_CURSOR',
+          message: 'Provide valid file cursor coordinates.',
+        });
+      }
+      if (!socket.data.joinedRooms.has(roomId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'ROOM_NOT_JOINED',
+          message: 'Join the room before sharing a cursor.',
+        });
+      }
+      const now = Date.now();
+      if (now - (socket.data.lastCursorAt || 0) < 40) {
+        return acknowledge(socket, callback, { success: true });
+      }
+      socket.data.lastCursorAt = now;
+
+      try {
+        const userId = socket.data.user.id;
+        const room = await Room.findOne({
+          _id: roomId,
+          $or: [{ owner: userId }, { members: userId }],
+          'files._id': fileId,
+        })
+          .select('_id')
+          .lean();
+        if (!room) {
+          const isMember = await Room.exists({
+            _id: roomId,
+            $or: [{ owner: userId }, { members: userId }],
+          });
+          if (!isMember) {
+            await clearSocketCursor(socket, roomId);
+            socket.emit(EVENTS.ROOM_ERROR, {
+              code: 'ROOM_ACCESS_REVOKED',
+              message: 'Your access to this room has changed.',
+            });
+            socket.disconnect(true);
+            return;
+          }
+          await clearSocketCursor(socket, roomId);
+          return acknowledge(socket, callback, {
+            success: false,
+            code: 'FILE_NOT_FOUND',
+            message: 'The room file no longer exists.',
+          });
+        }
+
+        const cursor = {
+          cursorId: socket.id,
+          roomId,
+          fileId,
+          userId,
+          username: socket.data.user.username,
+          position: { lineNumber: position.lineNumber, column: position.column },
+          selection: selection && {
+            startLineNumber: selection.startLineNumber,
+            startColumn: selection.startColumn,
+            endLineNumber: selection.endLineNumber,
+            endColumn: selection.endColumn,
+          },
+        };
+        let roomCursors = cursorsByRoom.get(roomId);
+        if (!roomCursors) {
+          roomCursors = new Map();
+          cursorsByRoom.set(roomId, roomCursors);
+        }
+        if ((roomCursors.get(socket.id)?.sequence || 0) >= sequence) {
+          return acknowledge(socket, callback, { success: true });
+        }
+        cursor.sequence = sequence;
+        roomCursors.set(socket.id, cursor);
+        await emitRoomEvent(io, roomId, EVENTS.CURSOR_UPDATE, cursor, socket.id);
+        return acknowledge(socket, callback, { success: true });
+      } catch (error) {
+        console.error('Socket cursor update failed:', error);
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'CURSOR_UPDATE_FAILED',
+          message: 'Unable to share the editor cursor.',
+        });
+      }
+    });
+
+    socket.on(EVENTS.CURSOR_CLEAR, async (payload, callback) => {
+      const { roomId, fileId } = payload || {};
+      if (!mongoose.isObjectIdOrHexString(roomId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'INVALID_ROOM_ID',
+          message: 'A valid room ID is required.',
+        });
+      }
+      if (fileId !== undefined && !mongoose.isObjectIdOrHexString(fileId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'INVALID_FILE_ID',
+          message: 'A valid file ID is required.',
+        });
+      }
+      if (!socket.data.joinedRooms.has(roomId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'ROOM_NOT_JOINED',
+          message: 'Join the room before clearing a cursor.',
+        });
+      }
+
+      try {
+        await clearSocketCursor(socket, roomId, fileId || null);
+        return acknowledge(socket, callback, { success: true });
+      } catch (error) {
+        console.error('Socket cursor clear failed:', error);
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'CURSOR_CLEAR_FAILED',
+          message: 'Unable to clear the editor cursor.',
         });
       }
     });
@@ -271,8 +443,13 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
       }
     });
 
-    socket.on('disconnecting', () => {
+    socket.on('disconnecting', async () => {
       for (const roomId of socket.data.joinedRooms) {
+        try {
+          await clearSocketCursor(socket, roomId);
+        } catch (error) {
+          console.error('Socket cursor cleanup failed:', error);
+        }
         const roomPresence = presenceByRoom.get(roomId);
         const userPresence = roomPresence?.get(socket.data.user.id);
         if (!userPresence) continue;

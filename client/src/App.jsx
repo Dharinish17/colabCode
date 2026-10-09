@@ -1,6 +1,7 @@
 import Editor from '@monaco-editor/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { EDITOR_LANGUAGES } from './constants/editorLanguages';
+import { useCollaborativeCursors } from './hooks/useCollaborativeCursors';
 import { useCollaborativeEditor } from './hooks/useCollaborativeEditor';
 import { useRoomPresence } from './hooks/useRoomPresence';
 import { SOCKET_EVENTS } from './socket/events';
@@ -716,6 +717,15 @@ function RoomPage({ currentUser }) {
   const canJoinLivePresence = Boolean(room?.isOwner || room?.isMember);
   const presence = useRoomPresence(roomId, canJoinLivePresence);
   const onlineUserIds = new Set(presence.users.map((user) => user.id));
+  const [monacoEditor, setMonacoEditor] = useState(null);
+  const [monacoApi, setMonacoApi] = useState(null);
+  const editorDecorationIdsRef = useRef([]);
+  const collaborativeCursors = useCollaborativeCursors({
+    socket: presence.socket,
+    roomId,
+    fileId: activeFileId,
+    userId: currentUser.id,
+  });
   useEffect(() => {
     const socket = presence.socket;
     if (!socket) return undefined;
@@ -756,6 +766,102 @@ function RoomPage({ currentUser }) {
     file: activeFile,
     onFileUpdate: updateRoomFile,
   });
+  const handleEditorMount = useCallback((editor, monaco) => {
+    setMonacoEditor(editor);
+    setMonacoApi(monaco);
+  }, []);
+
+  useEffect(() => {
+    if (!monacoEditor || !activeFileId) return undefined;
+
+    const publishCurrentCursor = (event) => {
+      const model = monacoEditor.getModel();
+      if (!model || !event.position) return;
+      const position = model.validatePosition(event.position);
+      const selection = event.selection && !event.selection.isEmpty()
+        ? {
+          startLineNumber: event.selection.getStartPosition().lineNumber,
+          startColumn: event.selection.getStartPosition().column,
+          endLineNumber: event.selection.getEndPosition().lineNumber,
+          endColumn: event.selection.getEndPosition().column,
+        }
+        : null;
+      collaborativeCursors.publishCursor(position, selection);
+    };
+
+    const cursorSubscription = monacoEditor.onDidChangeCursorSelection(publishCurrentCursor);
+    const currentPosition = monacoEditor.getPosition();
+    if (currentPosition) {
+      publishCurrentCursor({
+        position: currentPosition,
+        selection: monacoEditor.getSelection(),
+      });
+    }
+    return () => cursorSubscription.dispose();
+  }, [activeFileId, collaborativeCursors.publishCursor, monacoEditor]);
+
+  useEffect(() => {
+    if (!monacoEditor || !monacoApi) return undefined;
+    const model = monacoEditor.getModel();
+    if (!model) return undefined;
+
+    const decorations = collaborativeCursors.cursors
+      .filter((cursor) => cursor.fileId === activeFileId)
+      .flatMap((cursor) => {
+        const color = [...cursor.userId].reduce(
+          (value, character) => (value * 31 + character.charCodeAt(0)) >>> 0,
+          0,
+        ) % 6;
+        const position = model.validatePosition(cursor.position);
+        const cursorRange = new monacoApi.Range(
+          position.lineNumber,
+          position.column,
+          position.lineNumber,
+          position.column,
+        );
+        const cursorDecoration = {
+          range: cursorRange,
+          options: {
+            before: {
+              content: `${cursor.username} `,
+              inlineClassName: `remote-cursor-label remote-cursor-color-${color}`,
+            },
+            hoverMessage: { value: `${cursor.username} is here` },
+            stickiness: monacoApi.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          },
+        };
+
+        if (!cursor.selection) return [cursorDecoration];
+        const selection = model.validateRange(new monacoApi.Range(
+          cursor.selection.startLineNumber,
+          cursor.selection.startColumn,
+          cursor.selection.endLineNumber,
+          cursor.selection.endColumn,
+        ));
+        if (selection.isEmpty()) return [cursorDecoration];
+        return [
+          cursorDecoration,
+          {
+            range: selection,
+            options: {
+              className: `remote-cursor-selection-${color}`,
+              hoverMessage: { value: `${cursor.username}'s selection` },
+              stickiness: monacoApi.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            },
+          },
+        ];
+      });
+    editorDecorationIdsRef.current = monacoEditor.deltaDecorations(
+      editorDecorationIdsRef.current,
+      decorations,
+    );
+    return () => {
+      editorDecorationIdsRef.current = monacoEditor.deltaDecorations(
+        editorDecorationIdsRef.current,
+        [],
+      );
+    };
+  }, [activeFileId, collaborativeCursors.cursors, monacoApi, monacoEditor]);
 
   async function loadRoom() {
     const result = await requestRooms(`/${roomId}`);
@@ -1283,6 +1389,7 @@ function RoomPage({ currentUser }) {
                       <Editor
                         height="min(65vh, 680px)"
                         language={EDITOR_LANGUAGES.some((language) => language.id === activeFile.language) ? activeFile.language : 'plaintext'}
+                        onMount={handleEditorMount}
                         onChange={(value) => collaborativeEditor.changeDraft(value ?? '')}
                         options={{
                           automaticLayout: true,
