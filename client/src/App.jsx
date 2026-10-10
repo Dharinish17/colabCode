@@ -1383,7 +1383,7 @@ function RoomPage({ currentUser }) {
               </div>
             )}
 
-            <div className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="mt-10 grid gap-6">
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -1420,17 +1420,6 @@ function RoomPage({ currentUser }) {
                     </span>
                   </div>
                 </div>
-                {canJoinLivePresence && (
-                  <div className="mt-4">
-                    <RoomVoiceChat
-                      currentUser={currentUser}
-                      key={room.id}
-                      room={room}
-                      roomId={roomId}
-                      socket={presence.socket}
-                    />
-                  </div>
-                )}
                 <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-medium text-slate-200">File explorer</h3>
@@ -1690,6 +1679,16 @@ function RoomPage({ currentUser }) {
                 </button>
                 <p className="mt-2 text-xs leading-5 text-slate-600">Editor changes sync live. Code runs in Wandbox’s isolated sandbox.</p>
               </section>
+
+              {canJoinLivePresence && (
+                <RoomVoiceChat
+                  currentUser={currentUser}
+                  key={room.id}
+                  room={room}
+                  roomId={roomId}
+                  socket={presence.socket}
+                />
+              )}
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
                 <div className="flex items-start justify-between gap-3">
