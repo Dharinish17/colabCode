@@ -67,7 +67,7 @@ The server reads `.env` from the repository root. Never commit `.env` or use rea
 
 ## How it works
 
-- **Authentication:** Passwords are bcrypt-hashed. A seven-day JWT is stored in an HTTP-only cookie.
+- **Authentication:** Passwords are bcrypt-hashed. A seven-day JWT is stored in an HTTP-only cookie. In production it uses `SameSite=None; Secure` for cross-site frontend/backend deployments; local development uses `SameSite=Lax`.
 - **Authorization:** The backend checks room membership and role for REST and socket operations. A shared room URL does not grant access.
 - **Collaboration:** REST handles account, room, file, history, and export operations. Socket.IO handles live edits, presence, cursors, chat, and notifications.
 - **Voice:** Socket.IO carries WebRTC signaling; audio travels peer-to-peer and is not recorded or stored. Microphone access requires user permission and HTTPS in production. Configure TURN for restrictive networks. Mesh voice is limited to six connections per room; larger rooms should use an SFU.

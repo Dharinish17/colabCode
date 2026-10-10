@@ -7,12 +7,18 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const TOKEN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
-function cookieOptions() {
+function cookieAttributes() {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
+  };
+}
+
+function cookieOptions() {
+  return {
+    ...cookieAttributes(),
     maxAge: TOKEN_LIFETIME_MS,
   };
 }
@@ -110,12 +116,7 @@ router.post('/login', async (req, res, next) => {
 });
 
 router.post('/logout', (req, res) => {
-  res.clearCookie(req.app.get('cookieName'), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-  });
+  res.clearCookie(req.app.get('cookieName'), cookieAttributes());
   return res.json({ success: true, message: 'Logged out.' });
 });
 
