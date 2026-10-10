@@ -6,6 +6,7 @@ import { useCollaborativeEditor } from './hooks/useCollaborativeEditor';
 import { useRoomPresence } from './hooks/useRoomPresence';
 import { SOCKET_EVENTS } from './socket/events';
 import RoomChat from './components/RoomChat';
+import RoomVoiceChat from './components/RoomVoiceChat';
 import {
   BrowserRouter,
   Link,
@@ -1419,6 +1420,17 @@ function RoomPage({ currentUser }) {
                     </span>
                   </div>
                 </div>
+                {canJoinLivePresence && (
+                  <div className="mt-4">
+                    <RoomVoiceChat
+                      currentUser={currentUser}
+                      key={room.id}
+                      room={room}
+                      roomId={roomId}
+                      socket={presence.socket}
+                    />
+                  </div>
+                )}
                 <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-medium text-slate-200">File explorer</h3>

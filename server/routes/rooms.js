@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { randomUUID } = require('crypto');
+const { createHmac, randomUUID } = require('crypto');
 const JSZip = require('jszip');
 const Room = require('../models/Room');
 const ChatMessage = require('../models/ChatMessage');
@@ -66,6 +66,12 @@ function serializeRoom(room, userId) {
       allowGuests: room.settings?.allowGuests === true,
       allowMemberEdits: room.settings?.allowMemberEdits !== false,
     },
+    voicePermissions: {
+      membersCanSpeak: room.voicePermissions?.membersCanSpeak !== false,
+      memberOverrides: room.voicePermissions?.memberOverrides instanceof Map
+        ? Object.fromEntries(room.voicePermissions.memberOverrides)
+        : room.voicePermissions?.memberOverrides || {},
+    },
     files: (room.files || []).map((file) => ({
       id: file.id,
       name: file.name,
@@ -102,6 +108,18 @@ function canManageMembers(room, userId) {
   return ['owner', 'moderator'].includes(roleFor(room, userId));
 }
 
+function canSpeakInRoom(room, userId) {
+  const role = roleFor(room, userId);
+  if (role !== 'member') return Boolean(role);
+  const overrides = room.voicePermissions?.memberOverrides;
+  const override = overrides instanceof Map
+    ? overrides.get(userId.toString())
+    : overrides?.[userId.toString()];
+  return typeof override === 'boolean'
+    ? override
+    : room.voicePermissions?.membersCanSpeak !== false;
+}
+
 function roomManagerIds(room) {
   const ownerId = memberId(room.owner);
   const roles = room.memberRoles instanceof Map
@@ -124,6 +142,51 @@ function notifyRoomManagers(io, room, event, payload, additionalUserIds = []) {
 
 function memberRolePath(userId) {
   return `memberRoles.${userId.toString()}`;
+}
+
+function configuredIceServers(userId) {
+  const stunUrls = (process.env.STUN_URLS || 'stun:stun.l.google.com:19302')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const turnUrls = (process.env.TURN_URLS || '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const validUrl = (url, schemes) => (
+    !url.includes('@') &&
+    schemes.some((scheme) => url.startsWith(`${scheme}:`)) &&
+    !/\s/.test(url)
+  );
+
+  if (
+    stunUrls.some((url) => !validUrl(url, ['stun', 'stuns'])) ||
+    turnUrls.some((url) => !validUrl(url, ['turn', 'turns']))
+  ) {
+    throw Object.assign(new Error('Voice connection server configuration is invalid.'), { status: 503 });
+  }
+
+  const iceServers = [];
+  if (stunUrls.length) iceServers.push({ urls: stunUrls });
+  if (turnUrls.length) {
+    const sharedSecret = process.env.TURN_SHARED_SECRET;
+    if (!sharedSecret || Buffer.byteLength(sharedSecret) < 32) {
+      throw Object.assign(new Error('TURN service is not configured securely.'), { status: 503 });
+    }
+
+    const configuredLifetime = Number(process.env.TURN_CREDENTIAL_TTL_SECONDS);
+    const lifetime = Number.isInteger(configuredLifetime)
+      ? Math.min(Math.max(configuredLifetime, 60), 86400)
+      : 3600;
+    const username = `${Math.floor(Date.now() / 1000) + lifetime}:${userId}`;
+    const credential = createHmac('sha1', sharedSecret).update(username).digest('base64');
+    iceServers.push({ urls: turnUrls, username, credential });
+  }
+
+  if (!iceServers.length) {
+    throw Object.assign(new Error('Voice connection servers are not configured.'), { status: 503 });
+  }
+  return iceServers;
 }
 
 function checkExecutionRateLimit(userId) {
@@ -506,6 +569,51 @@ router.post('/:roomId/request-access', async (req, res, next) => {
         ? { success: true, status: 'pending' }
         : { success: false, message: 'Unable to create the access request.' },
     );
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:roomId/voice-config', async (req, res, next) => {
+  const { roomId } = req.params;
+  if (!mongoose.isObjectIdOrHexString(roomId)) {
+    return res.status(404).json({ success: false, message: 'Room not found.' });
+  }
+
+  try {
+    const room = await Room.findById(roomId)
+      .select('_id owner members memberRoles voicePermissions')
+      .lean();
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    const userId = req.user.id;
+    const isOwner = room.owner.toString() === userId;
+    const isMember = room.members.some((member) => member.toString() === userId);
+    if (!isOwner && !isMember) {
+      return res.status(403).json({
+        success: false,
+        message: 'Room membership is required to configure voice chat.',
+      });
+    }
+
+    res.set('Cache-Control', 'no-store');
+    try {
+      return res.json({
+        success: true,
+        iceServers: configuredIceServers(userId),
+        canSpeak: canSpeakInRoom(room, userId),
+      });
+    } catch (configError) {
+      if (Number.isInteger(configError.status)) {
+        console.error('Voice connection configuration is unavailable:', configError.message);
+        return res.status(configError.status).json({
+          success: false,
+          message: configError.message,
+        });
+      }
+      throw configError;
+    }
   } catch (err) {
     return next(err);
   }

@@ -5,6 +5,10 @@ function roomChannel(roomId) {
   return `room:${roomId}`;
 }
 
+function voiceChannel(roomId) {
+  return `voice:${roomId}`;
+}
+
 function userChannel(userId) {
   return `user:${userId}`;
 }
@@ -35,7 +39,7 @@ async function emitRoomEvent(io, roomId, event, payload, excludedSocketId = null
 }
 
 async function disconnectRoomUser(io, roomId, userId) {
-  const sockets = await io.in(roomChannel(roomId)).fetchSockets();
+  const sockets = await socketsInChannels(io, [roomChannel(roomId), voiceChannel(roomId)]);
   await Promise.all(sockets
     .filter((socket) => socket.data.user?.id === userId.toString())
     .map(async (socket) => {
@@ -48,7 +52,7 @@ async function disconnectRoomUser(io, roomId, userId) {
 }
 
 async function disconnectRoom(io, roomId) {
-  const sockets = await io.in(roomChannel(roomId)).fetchSockets();
+  const sockets = await socketsInChannels(io, [roomChannel(roomId), voiceChannel(roomId)]);
   await Promise.all(sockets.map(async (socket) => {
     socket.emit(EVENTS.ROOM_ERROR, {
       code: 'ROOM_DELETED',
@@ -58,6 +62,15 @@ async function disconnectRoom(io, roomId) {
   }));
 }
 
+async function socketsInChannels(io, channels) {
+  const groups = await Promise.all(channels.map((channel) => io.in(channel).fetchSockets()));
+  const unique = new Map();
+  for (const sockets of groups) {
+    for (const socket of sockets) unique.set(socket.id, socket);
+  }
+  return [...unique.values()];
+}
+
 module.exports = {
   disconnectRoom,
   disconnectRoomUser,
@@ -65,4 +78,5 @@ module.exports = {
   emitUserEvent,
   roomChannel,
   userChannel,
+  voiceChannel,
 };

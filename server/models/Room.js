@@ -115,6 +115,17 @@ const roomSchema = new mongoose.Schema(
         default: true,
       },
     },
+    voicePermissions: {
+      membersCanSpeak: {
+        type: Boolean,
+        default: true,
+      },
+      memberOverrides: {
+        type: Map,
+        of: Boolean,
+        default: () => new Map(),
+      },
+    },
     files: {
       type: [roomFileSchema],
       default: () => [{ name: 'main.js', language: 'javascript', content: '' }],
