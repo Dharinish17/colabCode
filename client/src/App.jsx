@@ -594,7 +594,7 @@ function DashboardPage({ currentUser, onLogout }) {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-[4.5rem] max-w-7xl items-center justify-between gap-5 px-5 sm:px-8">
+        <div className="mx-auto flex h-18 max-w-7xl items-center justify-between gap-5 px-5 sm:px-8">
           <div className="flex items-center gap-8">
             <Brand />
             <nav aria-label="Main navigation" className="hidden items-center gap-1 text-sm md:flex">
@@ -1652,11 +1652,11 @@ function RoomPage({ currentUser }) {
                         <div className="mt-3 grid gap-3">
                           <div>
                             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">stdout</p>
-                            <pre className="min-h-10 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-3 font-mono text-xs text-slate-200">{execution.stdout || '(empty)'}</pre>
+                            <pre className="min-h-10 max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg bg-black/30 p-3 font-mono text-xs text-slate-200">{execution.stdout || '(empty)'}</pre>
                           </div>
                           <div>
                             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">stderr</p>
-                            <pre className="min-h-10 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-3 font-mono text-xs text-rose-200">{execution.stderr || '(empty)'}</pre>
+                            <pre className="min-h-10 max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg bg-black/30 p-3 font-mono text-xs text-rose-200">{execution.stderr || '(empty)'}</pre>
                           </div>
                         </div>
                       </section>
