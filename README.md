@@ -2,6 +2,8 @@
 
 colabCode is a collaborative coding workspace built with the MERN stack. Room members can edit files together, chat, share cursors, run code, and join optional voice chat.
 
+> **NOTE:** `client` is the frontend; `server` is the backend.
+
 ## Features
 
 - Public and private rooms with member, moderator, and owner permissions.
