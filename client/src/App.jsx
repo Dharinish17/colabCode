@@ -812,30 +812,12 @@ function RoomPage({ currentUser }) {
       files: current.files.map((file) => file.id === updatedFile.id ? updatedFile : file),
     }));
   }, []);
-  const applyRemoteEditorEdit = useCallback((fileId, edit) => {
-    if (fileId !== activeFileId || !monacoEditor || !monacoApi) return;
-    const model = monacoEditor.getModel();
-    if (!model) return;
-    const start = model.getPositionAt(edit.index);
-    const end = model.getPositionAt(edit.index + edit.deletedLength);
-    monacoEditor.executeEdits('remote-collaboration', [{
-      range: new monacoApi.Range(
-        start.lineNumber,
-        start.column,
-        end.lineNumber,
-        end.column,
-      ),
-      text: edit.insertedText,
-      forceMoveMarkers: false,
-    }]);
-  }, [activeFileId, monacoApi, monacoEditor]);
   const collaborativeEditor = useCollaborativeEditor({
     socket: presence.socket,
     roomId,
     file: activeFile,
     canEdit: canEditFile,
     onFileUpdate: updateRoomFile,
-    onRemoteEdit: applyRemoteEditorEdit,
   });
   const handleEditorMount = useCallback((editor, monaco) => {
     setMonacoEditor(editor);
@@ -1411,7 +1393,7 @@ function RoomPage({ currentUser }) {
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <button
                       className="rounded-lg bg-brand-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-brand-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={!activeFile || !activeLanguageIsExecutable || !canRunCode || isRunningCode}
+                      disabled={!activeFile || !activeLanguageIsExecutable || !canRunCode || isRunningCode || collaborativeEditor.syncStatus === 'conflict'}
                       onClick={handleRunCode}
                       title={!canRunCode
                         ? 'Join the room and have permission to edit to run code.'
@@ -1423,17 +1405,18 @@ function RoomPage({ currentUser }) {
                       {isRunningCode ? 'Running…' : 'Run'}
                     </button>
                     <span className={`rounded-full px-2.5 py-1 text-xs ${
-                        collaborativeEditor.syncStatus === 'saved'
-                          ? 'bg-emerald-400/10 text-emerald-300'
-                          : collaborativeEditor.syncStatus === 'error'
-                            ? 'bg-rose-400/10 text-rose-300'
-                            : 'bg-amber-400/10 text-amber-300'
-                      }`}>
+                      collaborativeEditor.syncStatus === 'saved'
+                        ? 'bg-emerald-400/10 text-emerald-300'
+                        : collaborativeEditor.syncStatus === 'conflict' || collaborativeEditor.syncStatus === 'error'
+                          ? 'bg-rose-400/10 text-rose-300'
+                          : 'bg-amber-400/10 text-amber-300'
+                    }`}>
                       {collaborativeEditor.syncStatus === 'saved' ? 'All changes saved'
                         : collaborativeEditor.syncStatus === 'saving' ? 'Saving…'
-                          : collaborativeEditor.syncStatus === 'offline' ? 'Offline · changes pending'
-                            : collaborativeEditor.syncStatus === 'error' ? 'Sync failed'
-                              : 'Unsaved changes'}
+                          : collaborativeEditor.syncStatus === 'conflict' ? 'Conflict'
+                            : collaborativeEditor.syncStatus === 'offline' ? 'Offline · changes pending'
+                              : collaborativeEditor.syncStatus === 'error' ? 'Sync failed'
+                                : 'Unsaved changes'}
                     </span>
                   </div>
                 </div>
@@ -1635,6 +1618,17 @@ function RoomPage({ currentUser }) {
                         value={collaborativeEditor.draft}
                       />
                     </div>
+                    {collaborativeEditor.conflictFile && (
+                      <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3" role="alert">
+                        <p className="text-sm text-amber-200">
+                          This file changed in another session. Your draft is preserved; choose which version to use.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button className="rounded-md border border-amber-300/30 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-300/10" onClick={() => collaborativeEditor.resolveConflict('latest')} type="button">Load latest version</button>
+                          <button className="rounded-md bg-amber-300 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-200" onClick={() => collaborativeEditor.resolveConflict('mine')} type="button">Keep my draft</button>
+                        </div>
+                      </div>
+                    )}
                     {executionError && (
                       <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200" role="alert">
                         {executionError}

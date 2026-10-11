@@ -4,7 +4,6 @@ module.exports = Object.freeze({
   ROOM_ERROR: 'room:error',
   EDITOR_STATE: 'editor:state',
   EDITOR_CHANGE: 'editor:change',
-  EDITOR_CRDT_UPDATE: 'editor:crdt-update',
   EDITOR_UPDATE: 'editor:update',
   EDITOR_CONFLICT: 'editor:conflict',
   CURSOR_UPDATE: 'cursor:update',
