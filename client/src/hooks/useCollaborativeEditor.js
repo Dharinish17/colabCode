@@ -5,7 +5,14 @@ function normalizedFile(file) {
   return { ...file, version: Number.isInteger(file.version) ? file.version : 0 };
 }
 
-export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, onFileUpdate }) {
+export function useCollaborativeEditor({
+  socket,
+  roomId,
+  file,
+  canEdit = true,
+  onFileUpdate,
+  onBeforeFileApply,
+}) {
   const [drafts, setDrafts] = useState(() => (
     file?.id ? { [file.id]: file.content || '' } : {}
   ));
@@ -24,12 +31,15 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
   const timerRef = useRef(null);
   const sendRef = useRef(() => {});
   const onFileUpdateRef = useRef(onFileUpdate);
+  const onBeforeFileApplyRef = useRef(onBeforeFileApply);
   const changeIdRef = useRef(0);
 
   onFileUpdateRef.current = onFileUpdate;
+  onBeforeFileApplyRef.current = onBeforeFileApply;
 
   const applyFile = useCallback((incoming) => {
     const nextFile = normalizedFile(incoming);
+    onBeforeFileApplyRef.current?.(nextFile);
     draftRef.current = nextFile.content;
     versionRef.current = nextFile.version;
     dirtyRef.current = false;

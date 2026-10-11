@@ -750,6 +750,7 @@ function RoomPage({ currentUser }) {
   const [monacoEditor, setMonacoEditor] = useState(null);
   const [monacoApi, setMonacoApi] = useState(null);
   const editorDecorationIdsRef = useRef([]);
+  const pendingEditorSelectionRef = useRef(null);
   const collaborativeCursors = useCollaborativeCursors({
     socket: presence.socket,
     roomId,
@@ -812,17 +813,42 @@ function RoomPage({ currentUser }) {
       files: current.files.map((file) => file.id === updatedFile.id ? updatedFile : file),
     }));
   }, []);
+  const preserveEditorSelection = useCallback((incomingFile) => {
+    if (
+      pendingEditorSelectionRef.current ||
+      incomingFile.id !== activeFileId ||
+      !monacoEditor
+    ) return;
+    const selection = monacoEditor.getSelection();
+    if (selection) {
+      pendingEditorSelectionRef.current = { fileId: incomingFile.id, selection };
+    }
+  }, [activeFileId, monacoEditor]);
   const collaborativeEditor = useCollaborativeEditor({
     socket: presence.socket,
     roomId,
     file: activeFile,
     canEdit: canEditFile,
     onFileUpdate: updateRoomFile,
+    onBeforeFileApply: preserveEditorSelection,
   });
   const handleEditorMount = useCallback((editor, monaco) => {
     setMonacoEditor(editor);
     setMonacoApi(monaco);
   }, []);
+
+  useLayoutEffect(() => {
+    const pending = pendingEditorSelectionRef.current;
+    if (!pending) return;
+    if (pending.fileId !== activeFileId) {
+      pendingEditorSelectionRef.current = null;
+      return;
+    }
+    const model = monacoEditor?.getModel();
+    if (!model || model.getValue() !== collaborativeEditor.draft) return;
+    monacoEditor.setSelection(model.validateRange(pending.selection));
+    pendingEditorSelectionRef.current = null;
+  }, [activeFileId, collaborativeEditor.draft, monacoEditor]);
 
   useEffect(() => {
     if (!monacoEditor) return undefined;
