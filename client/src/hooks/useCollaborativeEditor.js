@@ -64,7 +64,14 @@ function contentDiff(current, next) {
   return { index, deletedLength, insertedText };
 }
 
-export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, onFileUpdate }) {
+export function useCollaborativeEditor({
+  socket,
+  roomId,
+  file,
+  canEdit = true,
+  onFileUpdate,
+  onRemoteEdit,
+}) {
   const [drafts, setDrafts] = useState(() => (
     file?.id ? { [file.id]: file.content || '' } : {}
   ));
@@ -80,12 +87,20 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
   const socketRef = useRef(socket);
   const canEditRef = useRef(canEdit);
   const onFileUpdateRef = useRef(onFileUpdate);
+  const onRemoteEditRef = useRef(onRemoteEdit);
   const versionsRef = useRef(new Map());
   const statusRef = useRef('saved');
 
   socketRef.current = socket;
   canEditRef.current = canEdit;
   onFileUpdateRef.current = onFileUpdate;
+  onRemoteEditRef.current = onRemoteEdit;
+
+  const applyRemoteEdit = useCallback((fileId, previousContent, nextContent) => {
+    if (previousContent === nextContent) return;
+    const edit = contentDiff(previousContent, nextContent);
+    onRemoteEditRef.current?.(fileId, edit);
+  }, []);
 
   const updateStatus = useCallback((nextStatus) => {
     statusRef.current = nextStatus;
@@ -172,6 +187,7 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
           Math.max(versionsRef.current.get(file.id) || 0, file.version),
         );
       }
+      const previousContent = existing.text.toString();
       if (file.collabState) {
         Y.applyUpdate(existing.document, decodeUpdate(file.collabState), SERVER_ORIGIN);
       } else if (typeof file.content === 'string' && file.content !== existing.text.toString()) {
@@ -181,6 +197,7 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
           if (insertedText) existing.text.insert(index, insertedText);
         }, SERVER_ORIGIN);
       }
+      applyRemoteEdit(file.id, previousContent, existing.text.toString());
       if (file.id === currentFileIdRef.current) {
         setDrafts((current) => ({ ...current, [file.id]: existing.text.toString() }));
       }
@@ -218,7 +235,7 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
       flushFileUpdates(file.id);
     });
     return entry;
-  }, [flushFileUpdates, updateFileContent, updateStatus]);
+  }, [applyRemoteEdit, flushFileUpdates, updateFileContent, updateStatus]);
 
   useLayoutEffect(() => {
     const roomChanged = roomIdRef.current !== roomId;
@@ -280,6 +297,7 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
       if (payload.roomId !== roomId || typeof payload.fileId !== 'string') return;
       const entry = documentsRef.current.get(payload.fileId);
       if (!entry) return;
+      const previousContent = entry.text.toString();
       try {
         Y.applyUpdate(entry.document, decodeUpdate(payload.update), SERVER_ORIGIN);
       } catch (error) {
@@ -288,6 +306,7 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
         return;
       }
       const content = entry.text.toString();
+      applyRemoteEdit(payload.fileId, previousContent, content);
       updateFileContent(
         payload.fileId,
         content,
@@ -338,7 +357,7 @@ export function useCollaborativeEditor({ socket, roomId, file, canEdit = true, o
       socket.off(SOCKET_EVENTS.EDITOR_CRDT_UPDATE, handleCrdtUpdate);
       socket.off(SOCKET_EVENTS.FILES_UPDATE, handleFilesUpdate);
     };
-  }, [flushFileUpdates, getOrCreateDocument, roomId, socket, updateFileContent, updateStatus]);
+  }, [applyRemoteEdit, flushFileUpdates, getOrCreateDocument, roomId, socket, updateFileContent, updateStatus]);
 
   const changeDraft = useCallback((value, changedFileId = currentFileIdRef.current) => {
     if (!changedFileId || changedFileId !== currentFileIdRef.current || !canEditRef.current) return;

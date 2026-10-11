@@ -812,12 +812,30 @@ function RoomPage({ currentUser }) {
       files: current.files.map((file) => file.id === updatedFile.id ? updatedFile : file),
     }));
   }, []);
+  const applyRemoteEditorEdit = useCallback((fileId, edit) => {
+    if (fileId !== activeFileId || !monacoEditor || !monacoApi) return;
+    const model = monacoEditor.getModel();
+    if (!model) return;
+    const start = model.getPositionAt(edit.index);
+    const end = model.getPositionAt(edit.index + edit.deletedLength);
+    monacoEditor.executeEdits('remote-collaboration', [{
+      range: new monacoApi.Range(
+        start.lineNumber,
+        start.column,
+        end.lineNumber,
+        end.column,
+      ),
+      text: edit.insertedText,
+      forceMoveMarkers: false,
+    }]);
+  }, [activeFileId, monacoApi, monacoEditor]);
   const collaborativeEditor = useCollaborativeEditor({
     socket: presence.socket,
     roomId,
     file: activeFile,
     canEdit: canEditFile,
     onFileUpdate: updateRoomFile,
+    onRemoteEdit: applyRemoteEditorEdit,
   });
   const handleEditorMount = useCallback((editor, monaco) => {
     setMonacoEditor(editor);
