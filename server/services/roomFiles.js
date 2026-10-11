@@ -57,6 +57,7 @@ function serializeFile(file) {
     name: file.name,
     language: file.language,
     content: file.content,
+    collabState: file.collabState || '',
     version: fileVersion(file),
     createdAt: file.createdAt,
     updatedAt: file.updatedAt,
@@ -178,6 +179,7 @@ async function updateRoomFile({ roomId, fileId, userId, content, version }) {
     {
       $set: {
         'files.$[target].content': content,
+        'files.$[target].collabState': '',
         'files.$[target].updatedAt': new Date(),
       },
       $inc: { 'files.$[target].version': 1 },

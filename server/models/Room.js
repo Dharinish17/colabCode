@@ -20,6 +20,10 @@ const roomFileSchema = new mongoose.Schema(
       default: '',
       maxlength: 100000,
     },
+    collabState: {
+      type: String,
+      default: '',
+    },
     version: {
       type: Number,
       min: 0,

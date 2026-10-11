@@ -5,6 +5,10 @@ const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
 const { fileVersion, updateRoomFile } = require('../services/roomFiles');
 const {
+  applyCollaborativeUpdate,
+  MAX_UPDATE_BYTES,
+} = require('../services/collaborativeFiles');
+const {
   emitRoomEvent,
   roomChannel,
   userChannel,
@@ -638,6 +642,7 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
           files: room.files.map((file) => ({
             ...file,
             id: file._id.toString(),
+            collabState: file.collabState || '',
             version: fileVersion(file),
           })),
         });
@@ -955,6 +960,94 @@ function configureSocket(io, { cookieName, jwtSecret, issuer }) {
           success: false,
           code: 'EDITOR_UPDATE_FAILED',
           message: 'Unable to persist the editor change.',
+        });
+      }
+    });
+
+    socket.on(EVENTS.EDITOR_CRDT_UPDATE, async (payload, callback) => {
+      const { roomId, fileId, update } = payload || {};
+      if (
+        !mongoose.isObjectIdOrHexString(roomId) ||
+        !mongoose.isObjectIdOrHexString(fileId) ||
+        typeof update !== 'string' ||
+        update.length > Math.ceil(MAX_UPDATE_BYTES * 4 / 3)
+      ) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'INVALID_EDITOR_UPDATE',
+          message: 'Provide a valid collaborative file update.',
+        });
+      }
+      if (!socket.data.joinedRooms.has(roomId)) {
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'ROOM_NOT_JOINED',
+          message: 'Join the room before editing its files.',
+        });
+      }
+
+      try {
+        const result = await applyCollaborativeUpdate({
+          roomId,
+          fileId,
+          userId: socket.data.user.id,
+          encodedUpdate: update,
+        });
+        if (result.status === 'forbidden') {
+          if (result.reason === 'not-member') {
+            socket.emit(EVENTS.ROOM_ERROR, {
+              code: 'ROOM_ACCESS_REVOKED',
+              message: result.message,
+            });
+            socket.disconnect(true);
+          }
+          return acknowledge(socket, callback, {
+            success: false,
+            code: 'EDIT_NOT_ALLOWED',
+            message: result.message,
+          });
+        }
+        if (result.status !== 'updated') {
+          const response = {
+            success: false,
+            code: result.status === 'not-found'
+              ? 'FILE_NOT_FOUND'
+              : result.status === 'busy'
+                ? 'EDITOR_BUSY'
+                : result.status === 'too-large'
+                  ? 'FILE_TOO_LARGE'
+                    : result.status === 'state-too-large'
+                      ? 'COLLAB_STATE_TOO_LARGE'
+                    : 'INVALID_EDITOR_UPDATE',
+            message: result.message || {
+              'not-found': 'The room or file no longer exists.',
+              'invalid-update': 'The collaborative file update is invalid.',
+              'too-large': 'File content is limited to 100 KB.',
+              'state-too-large': 'The collaborative file history has grown too large. Create a new file to continue collaborating.',
+              busy: 'The file is receiving many simultaneous changes. Please retry.',
+            }[result.status],
+          };
+          return acknowledge(socket, callback, response);
+        }
+
+        const updatePayload = {
+          roomId,
+          fileId,
+          update: result.update,
+          version: result.file.version,
+          actor: socket.data.user,
+        };
+        await emitRoomEvent(io, roomId, EVENTS.EDITOR_CRDT_UPDATE, updatePayload, socket.id);
+        return acknowledge(socket, callback, {
+          success: true,
+          version: result.file.version,
+        });
+      } catch (error) {
+        console.error('Socket collaborative editor update failed:', error);
+        return acknowledge(socket, callback, {
+          success: false,
+          code: 'EDITOR_UPDATE_FAILED',
+          message: 'Unable to persist the collaborative editor update.',
         });
       }
     });

@@ -77,6 +77,7 @@ function serializeRoom(room, userId) {
       name: file.name,
       language: file.language,
       content: file.content,
+      collabState: file.collabState || '',
       version: Number.isInteger(file.version) ? file.version : 0,
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
